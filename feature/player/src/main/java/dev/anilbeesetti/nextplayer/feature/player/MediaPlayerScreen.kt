@@ -512,6 +512,7 @@ fun MediaPlayerScreen(
                 onEqContrastChange = { eqContrast = it },
                 onEqSaturationChange = { eqSaturation = it },
                 onEqReset = { eqBrightness = 1f; eqContrast = 1f; eqSaturation = 1f },
+                onEqApplyProfile = { b, c, s -> eqBrightness = b; eqContrast = c; eqSaturation = s },
                 onAddBookmark = {
                     viewModel.addBookmark(player.currentPosition)
                     Toast.makeText(context, coreUiR.string.bookmark_added, Toast.LENGTH_SHORT).show()
