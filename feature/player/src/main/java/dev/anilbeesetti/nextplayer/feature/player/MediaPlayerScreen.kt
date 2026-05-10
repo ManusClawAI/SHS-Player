@@ -486,6 +486,8 @@ fun MediaPlayerScreen(
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 },
                 onPlaylistClick = { overlayView = OverlayView.PLAYLIST_PANEL },
+                onSubtitleFromMenuClick = { overlayView = null; overlayView = OverlayView.SUBTITLE_SELECTOR },
+                onAudioDelayClick = { overlayView = null; showAudioDelayDialog = true },
                 onAbSetA = { abPointA = player.currentPosition },
                 onAbSetB = { abPointB = player.currentPosition },
                 onAbClear = { abPointA = null; abPointB = null },
