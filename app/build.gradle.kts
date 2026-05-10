@@ -139,6 +139,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.kotlinx.coroutines.guava)
+    implementation(libs.nanohttpd)
 
     testImplementation(libs.junit4)
     androidTestImplementation(platform(libs.androidx.compose.bom))
