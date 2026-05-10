@@ -48,6 +48,7 @@ fun BoxScope.OverlayShowView(
     onSubtitleFromMenuClick: () -> Unit = {},
     onAudioDelayClick: () -> Unit = {},
     audioDelayMs: Long = 0L,
+    onEqApplyProfile: (Float, Float, Float) -> Unit = { _, _, _ -> },
     onAbSetA: () -> Unit = {},
     onAbSetB: () -> Unit = {},
     onAbClear: () -> Unit = {},
