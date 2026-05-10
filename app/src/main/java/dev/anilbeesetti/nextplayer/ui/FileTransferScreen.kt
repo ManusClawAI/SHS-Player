@@ -601,7 +601,7 @@ fun ReceiveView(context: Context) {
                 val activeServer = server
                 LaunchedEffect(activeServer) {
                     if (activeServer == null) return@LaunchedEffect
-                    while (activeServer.isRunning) {
+                    while (activeServer.isAlive) {
                         liveFileNames = activeServer.receivedFiles.map { it.name }
                         kotlinx.coroutines.delay(500)
                     }

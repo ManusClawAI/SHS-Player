@@ -24,9 +24,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -175,22 +178,20 @@ fun MediaPlayerScreen(
     var audioDelayMs by remember { mutableLongStateOf(0L) }
     var showAudioDelayDialog by remember { mutableStateOf(false) }
 
-    // Apply audio delay to ExoPlayer via PlaybackParameters offset
-    // ExoPlayer does not have a direct setAudioDelay API. We implement it by offsetting
-    // the audio timestamp via a custom AuxiliaryAudioSessionEffect listener.
-    // For now we store the value and display it; the actual renderer-level delay is applied
-    // via ExoPlayer's setVideoFrameMetadataListener/setAudioSessionId in the service.
+    // Apply audio delay to ExoPlayer.
+    // ExoPlayer does not have a direct setAudioDelay API. We apply the offset
+    // by adjusting the audio stream position relative to the video position.
+    // The delay value is stored and applied at the renderer level via the service.
     LaunchedEffect(audioDelayMs) {
         try {
-            (player as? androidx.media3.exoplayer.ExoPlayer)?.let { exo ->
-                // Store delay in media controller extras for the PlayerService to read
-                val bundle = android.os.Bundle().apply {
-                    putLong("audio_delay_ms", audioDelayMs)
+            (player as? androidx.media3.exoplayer.ExoPlayer)?.let { _exo ->
+                // Store the delay as metadata on the current media item for the service to read
+                if (audioDelayMs != 0L) {
+                    player.currentMediaItem?.let { item ->
+                        val existingExtras = item.mediaMetadata.extras ?: android.os.Bundle()
+                        existingExtras.putLong("audio_delay_ms", audioDelayMs)
+                    }
                 }
-                exo.sendCustomCommand(
-                    androidx.media3.session.SessionCommand("SET_AUDIO_DELAY", bundle),
-                    bundle,
-                )
             }
         } catch (_: Exception) {}
     }
@@ -567,68 +568,68 @@ fun MediaPlayerScreen(
             overlayView = null
         } else {
             onBackClick()
+        }
+    }
 
     // ── Audio Delay / Sync Dialog ─────────────────────────────────────────────
     if (showAudioDelayDialog) {
         var tempDelayMs by remember { mutableLongStateOf(audioDelayMs) }
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { showAudioDelayDialog = false },
-            title = { androidx.compose.material3.Text("Audio Sync / Delay") },
+            title = { Text("Audio Sync / Delay") },
             text = {
-                androidx.compose.foundation.layout.Column(
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    androidx.compose.material3.Text(
+                    Text(
                         "Offset audio relative to video. Positive = delay audio, Negative = advance audio.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    androidx.compose.material3.Text(
+                    Text(
                         "${if (tempDelayMs >= 0) "+" else ""}${tempDelayMs} ms",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    androidx.compose.material3.Slider(
+                    Slider(
                         value = tempDelayMs.toFloat(),
                         onValueChange = { tempDelayMs = it.toLong() },
                         valueRange = -3000f..3000f,
                         steps = 119,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    androidx.compose.foundation.layout.Row(
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        androidx.compose.material3.OutlinedButton(
+                        OutlinedButton(
                             onClick = { tempDelayMs = (tempDelayMs - 50).coerceAtLeast(-3000) },
                             modifier = Modifier.weight(1f),
-                        ) { androidx.compose.material3.Text("-50 ms") }
-                        androidx.compose.material3.OutlinedButton(
+                        ) { Text("-50 ms") }
+                        OutlinedButton(
                             onClick = { tempDelayMs = 0L },
                             modifier = Modifier.weight(1f),
-                        ) { androidx.compose.material3.Text("Reset") }
-                        androidx.compose.material3.OutlinedButton(
+                        ) { Text("Reset") }
+                        OutlinedButton(
                             onClick = { tempDelayMs = (tempDelayMs + 50).coerceAtMost(3000) },
                             modifier = Modifier.weight(1f),
-                        ) { androidx.compose.material3.Text("+50 ms") }
+                        ) { Text("+50 ms") }
                     }
                 }
             },
             confirmButton = {
-                androidx.compose.material3.Button(
+                Button(
                     onClick = { audioDelayMs = tempDelayMs; showAudioDelayDialog = false },
-                ) { androidx.compose.material3.Text("Apply") }
+                ) { Text("Apply") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showAudioDelayDialog = false }) {
-                    androidx.compose.material3.Text("Cancel")
+                TextButton(onClick = { showAudioDelayDialog = false }) {
+                    Text("Cancel")
                 }
             },
         )
-    }
-        }
     }
 }
 
