@@ -459,18 +459,21 @@ class PlayerService : MediaSessionService() {
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS * 2,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                50000,  // minBufferMs — must be >= bufferForPlaybackAfterRebufferMs (ExoPlayer constraint)
+                50000,  // maxBufferMs — large for poorly-encoded videos
+                2500,   // bufferForPlaybackMs
+                5000,   // bufferForPlaybackAfterRebufferMs
             )
             .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(30000, true)  // keep 30s back-buffer for instant rewind
             .build()
 
         val player = ExoPlayer.Builder(applicationContext)
             .setRenderersFactory(renderersFactory)
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
+            .setSeekBackIncrementMs(10000)
+            .setSeekForwardIncrementMs(10000)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -485,7 +488,7 @@ class PlayerService : MediaSessionService() {
             .also {
                 it.addListener(playbackStateListener)
                 it.pauseAtEndOfMediaItems = !playerPreferences.autoplay
-                it.setSeekParameters(SeekParameters.EXACT)
+                it.setSeekParameters(SeekParameters.PREVIOUS_SYNC)
                 it.repeatMode = when (playerPreferences.loopMode) {
                     LoopMode.OFF -> Player.REPEAT_MODE_OFF
                     LoopMode.ONE -> Player.REPEAT_MODE_ONE

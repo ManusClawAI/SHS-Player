@@ -38,7 +38,15 @@ class AudioPlayerActivity : ComponentActivity() {
     }
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
-    private var mediaController: MediaController? = null
+
+    /**
+     * MediaController wrapped in mutableStateOf so that Compose UI recomposes
+     * automatically when the controller is connected. Without this, the
+     * AudioPlayerScreen stays stuck on "Connecting to player..." even after
+     * the background service starts playback.
+     */
+    private val mediaControllerState = androidx.compose.runtime.mutableStateOf<MediaController?>(null)
+    private val mediaController: MediaController? get() = mediaControllerState.value
 
     /**
      * Tracks whether the MediaController is currently bound to the PlayerService.
@@ -100,7 +108,7 @@ class AudioPlayerActivity : ComponentActivity() {
                 controllerFuture = MediaController.Builder(this@AudioPlayerActivity, token)
                     .buildAsync()
                 val controller = controllerFuture!!.await()
-                mediaController = controller
+                mediaControllerState.value = controller
                 isBound = true
 
                 Log.d(TAG, "MediaController bound successfully, isBound=true")
@@ -167,7 +175,7 @@ class AudioPlayerActivity : ComponentActivity() {
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "Service not registered during release", e)
         } finally {
-            mediaController = null
+            mediaControllerState.value = null
             isBound = false
         }
 
