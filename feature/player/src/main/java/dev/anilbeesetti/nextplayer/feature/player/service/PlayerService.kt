@@ -459,10 +459,10 @@ class PlayerService : MediaSessionService() {
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                1500,   // min buffer — faster start
-                50000,  // max buffer — large for poorly-encoded videos
-                1000,   // buffer for playback
-                2000,   // buffer for rebuffer
+                50000,  // minBufferMs — must be >= bufferForPlaybackAfterRebufferMs (ExoPlayer constraint)
+                50000,  // maxBufferMs — large for poorly-encoded videos
+                2500,   // bufferForPlaybackMs
+                5000,   // bufferForPlaybackAfterRebufferMs
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(30000, true)  // keep 30s back-buffer for instant rewind
