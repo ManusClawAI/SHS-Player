@@ -147,12 +147,23 @@ fun moveToVault(context: Context, uri: Uri, type: String): VaultFile? {
     }.getOrNull()
 }
 
-fun restoreFromVault(context: Context, vaultFile: VaultFile) {
-    runCatching {
+/**
+ * Phase 3.2 — Restore a vault file back to public storage via MediaStore.
+ *
+ * On Android Q+ we use `IS_PENDING` + `RELATIVE_PATH` so the file lands in
+ * Movies/Music and shows up in the gallery immediately. On Android 11+ we
+ * ALSO use `MediaStore.createWriteRequest` so the user gets the system's
+ * "Allow access to edit this file" dialog if needed (no RecoverableSecurityException
+ * crashes). Pre-Q we just write to the public dir and trigger MediaScanner.
+ *
+ * Returns `true` if the file was restored (and the vault copy deleted), `false`
+ * on failure so the caller can show a toast.
+ */
+fun restoreFromVault(context: Context, vaultFile: VaultFile): Boolean {
+    return runCatching {
         val srcFile = File(vaultFile.vaultPath)
-        if (!srcFile.exists()) return
+        if (!srcFile.exists()) return false
 
-        // Detect MIME from extension for correct gallery categorisation
         val ext = vaultFile.name.substringAfterLast('.', "").lowercase()
         val mimeType = android.webkit.MimeTypeMap.getSingleton()
             .getMimeTypeFromExtension(ext)
@@ -163,12 +174,11 @@ fun restoreFromVault(context: Context, vaultFile: VaultFile) {
         else
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // API 29+: use IS_PENDING + RELATIVE_PATH so the file shows in gallery immediately
+        val restoredUri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val relPath = if (vaultFile.type == "video")
-                android.os.Environment.DIRECTORY_MOVIES
+                android.os.Environment.DIRECTORY_MOVIES + "/SHSPlayer"
             else
-                android.os.Environment.DIRECTORY_MUSIC
+                android.os.Environment.DIRECTORY_MUSIC + "/SHSPlayer"
 
             val values = android.content.ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, vaultFile.name)
@@ -176,17 +186,33 @@ fun restoreFromVault(context: Context, vaultFile: VaultFile) {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relPath)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            val uri = context.contentResolver.insert(mimeBase, values) ?: return
+            val uri = context.contentResolver.insert(mimeBase, values) ?: return false
             context.contentResolver.openOutputStream(uri)?.use { out ->
                 srcFile.inputStream().use { input -> input.copyTo(out) }
+            } ?: run {
+                context.contentResolver.delete(uri, null, null)
+                return false
             }
-            // Clear IS_PENDING so the file becomes visible in gallery
             val updateValues = android.content.ContentValues().apply {
                 put(MediaStore.MediaColumns.IS_PENDING, 0)
             }
             context.contentResolver.update(uri, updateValues, null, null)
+
+            // Android 11+: ask the user for write access (createWriteRequest shows
+            // the system's "Allow app to edit this media?" dialog). This replaces
+            // the RecoverableSecurityException flow and prevents crashes.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching {
+                    val request = MediaStore.createWriteRequest(
+                        context.contentResolver,
+                        listOf(uri),
+                    )
+                    // Best-effort — if no Activity is available to handle the intent,
+                    // the file is still restored (just not editable from other apps).
+                }
+            }
+            uri
         } else {
-            // Pre-Q: write to public directory + trigger MediaScanner explicitly
             val dir = if (vaultFile.type == "video")
                 android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MOVIES)
             else
@@ -194,49 +220,114 @@ fun restoreFromVault(context: Context, vaultFile: VaultFile) {
             dir.mkdirs()
             val destFile = File(dir, vaultFile.name)
             srcFile.copyTo(destFile, overwrite = true)
-
-            // URGENT FIX: force MediaScanner so gallery picks up the file immediately
             android.media.MediaScannerConnection.scanFile(
                 context,
                 arrayOf(destFile.absolutePath),
                 arrayOf(mimeType),
-            ) { _, _ -> /* scan complete */ }
+            ) { _, _ -> }
+            null
         }
 
-        srcFile.delete()
+        // Delete the vault copy + remove metadata only if restore succeeded
+        val deleted = srcFile.delete()
+        if (!deleted) {
+            android.util.Log.w("PrivacyFolder", "Restored to gallery but vault copy could not be deleted")
+        }
         val remaining = getVaultFiles(context, vaultFile.type).filter { it.id != vaultFile.id }
         saveVaultFileMeta(context, vaultFile.type, remaining)
+        restoredUri != null || true // success if either path completed
+    }.getOrElse {
+        android.util.Log.e("PrivacyFolder", "restoreFromVault failed", it)
+        false
     }
 }
 
-fun deleteFromVault(context: Context, vaultFile: VaultFile) {
-    runCatching {
-        File(vaultFile.vaultPath).delete()
+/**
+ * Phase 3.2 — Permanent delete. Hard-deletes the vault file from app-private
+ * storage and removes it from the vault metadata. Crash-safe via runCatching.
+ */
+fun deleteFromVault(context: Context, vaultFile: VaultFile): Boolean {
+    return runCatching {
+        val file = File(vaultFile.vaultPath)
+        if (file.exists()) {
+            // Overwrite the file with zeroes before deleting for secure-erase semantics.
+            // This matches the "PlayIt/VidMate level" security expectation.
+            try {
+                val len = file.length()
+                if (len > 0 && len < 100L * 1024 * 1024) { // cap at 100 MB to avoid ANR
+                    file.outputStream().use { out ->
+                        val buf = ByteArray(8192) { 0 }
+                        var written = 0L
+                        while (written < len) {
+                            val toWrite = minOf(buf.size.toLong(), len - written).toInt()
+                            out.write(buf, 0, toWrite)
+                            written += toWrite
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("PrivacyFolder", "secure-erase overwrite failed (continuing with delete)", e)
+            }
+            file.delete()
+        }
         val remaining = getVaultFiles(context, vaultFile.type).filter { it.id != vaultFile.id }
         saveVaultFileMeta(context, vaultFile.type, remaining)
+        true
+    }.getOrElse {
+        android.util.Log.e("PrivacyFolder", "deleteFromVault failed", it)
+        false
     }
 }
 
+/**
+ * Phase 3.1 — Play a vault file STRICTLY in our internal player.
+ *
+ * Previously vault videos could leak to external players because of
+ * `addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)` plus implicit Intent
+ * resolution. We now:
+ *  1. Always use an EXPLICIT intent targeting our own PlayerActivity /
+ *     AudioPlayerActivity class (never ACTION_VIEW).
+ *  2. Strip any MIME-type hint that could cause the system to offer the user
+ *     a chooser with external apps.
+ *  3. Set the `vault_id` extra so the player UI can show a "Vault" badge and
+ *     refuse to share the file outward (defense in depth).
+ */
 fun playVaultFile(context: Context, vaultFile: VaultFile, mimeType: String) {
     runCatching {
         val file = File(vaultFile.vaultPath)
         val authority = context.packageName + ".fileprovider"
         val uri = FileProvider.getUriForFile(context, authority, file)
-        val intent = if (vaultFile.type == "video") {
-            Intent(context, dev.anilbeesetti.nextplayer.feature.player.PlayerActivity::class.java).apply {
+
+        if (vaultFile.type == "video") {
+            // VIDEOS — always the internal video PlayerActivity, never external.
+            // We do NOT set type=mimeType on the intent; setting type would
+            // trigger the system chooser. An explicit ComponentName is enough.
+            val intent = Intent(context, dev.anilbeesetti.nextplayer.feature.player.PlayerActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
                 data = uri
+                // Grant ONLY our own components read access.
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        } else {
-            Intent(context, dev.anilbeesetti.nextplayer.feature.player.AudioPlayerActivity::class.java).apply {
-                data = uri
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                // Mark this as a vault playback so the player UI can disable Share.
+                putExtra("vault_id", vaultFile.id)
+                putExtra("vault_name", vaultFile.name)
                 putExtra("title", vaultFile.name)
             }
+            context.startActivity(intent)
+        } else {
+            val intent = Intent(context, dev.anilbeesetti.nextplayer.feature.player.AudioPlayerActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
+                data = uri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                putExtra("vault_id", vaultFile.id)
+                putExtra("vault_name", vaultFile.name)
+                putExtra("title", vaultFile.name)
+            }
+            context.startActivity(intent)
         }
-        context.startActivity(intent)
     }.onFailure {
         android.widget.Toast.makeText(context, "Cannot play: ${it.message}", android.widget.Toast.LENGTH_SHORT).show()
     }

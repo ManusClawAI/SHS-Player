@@ -679,6 +679,37 @@ fun ReceiveView(context: Context) {
                     textAlign = TextAlign.Center,
                 )
                 Spacer(modifier = Modifier.height(24.dp))
+
+                // PHASE 7 — Modern permission + auto-enable UX.
+                // Show this card BEFORE the user can tap "Start Receiving" so
+                // they understand WHY we need Wi-Fi + Location, and can turn
+                // them on with a single tap instead of fighting a permission
+                // wall after pressing the button.
+                dev.anilbeesetti.nextplayer.ui.share.P2pPermissionSetupCard(
+                    onAllReady = {
+                        // All preconditions met — directly start the server.
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val port = (10000..65000).random()
+                                val newServer = VaultHttpServer(context, port)
+                                newServer.start()
+                                val ip = getWifiIpAddress(context) ?: "0.0.0.0"
+                                val url = "http://$ip:$port?token=${newServer.authToken}"
+                                val qr = generateQrCodeBitmap(url)
+                                withContext(Dispatchers.Main) {
+                                    server = newServer
+                                    serverState = ReceiveServerState.Running(url, qr, port)
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    serverState = ReceiveServerState.Error("Failed to start: ${e.message}")
+                                }
+                            }
+                        }
+                    },
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     onClick = {
                         if (!permissionsState.allPermissionsGranted) { showPermDialog = true; return@Button }

@@ -7,21 +7,43 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyItems
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
 import dev.anilbeesetti.nextplayer.core.ui.R as coreUiR
 import dev.anilbeesetti.nextplayer.feature.player.PlayerActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
+/**
+ * Phase 8 — Redesigned Watch TV screen.
+ *
+ * Top-level tabs are now the five categories requested by the spec:
+ * Bangladesh · Sports · News · Popular · Free Channels.
+ *
+ * Within each category, channels are loaded in parallel from every playlist
+ * that maps to that category (e.g. Bangladesh → bd.m3u only; Popular →
+ * Movies + Kids + Music + India).
+ *
+ * Channels are then grouped by their M3U `group-title` attribute (or "Other")
+ * for secondary organisation within the category.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WatchTvScreen(
@@ -29,23 +51,38 @@ fun WatchTvScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    var selectedCategory by remember {
+        mutableStateOf(DefaultIptvPlaylists.availableCategories.first())
+    }
     var channels by remember { mutableStateOf<List<IptvChannel>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var selectedPlaylist by remember { mutableStateOf(DefaultIptvPlaylists.playlists.first()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showPlaylistPicker by remember { mutableStateOf(false) }
 
-    LaunchedEffect(selectedPlaylist) {
+    // Reload channels whenever the user picks a different category tab.
+    LaunchedEffect(selectedCategory) {
         loading = true
         errorMessage = null
+        channels = emptyList()
         scope.launch {
-            val result = M3uParser.parse(context, selectedPlaylist.url)
-            channels = result
-            loading = if (result.isEmpty()) {
+            val playlists = DefaultIptvPlaylists.forCategory(selectedCategory)
+            if (playlists.isEmpty()) {
+                loading = false
+                return@launch
+            }
+            // Fetch all playlists for this category in parallel
+            val results = withContext(Dispatchers.IO) {
+                playlists.map { playlist ->
+                    async { M3uParser.parse(context, playlist.url) }
+                }.awaitAll()
+            }
+            val merged = results.flatten().distinctBy { it.url }
+            channels = merged
+            loading = false
+            if (merged.isEmpty()) {
                 errorMessage = "No channels found. Check your connection."
-                false
-            } else false
+            }
         }
     }
 
@@ -54,8 +91,10 @@ fun WatchTvScreen(
         else channels.filter { it.name.contains(searchQuery, ignoreCase = true) }
     }
 
+    // Within a category, group by M3U `group-title` (or "Other") for sub-organisation.
     val groupedChannels = remember(filteredChannels) {
-        filteredChannels.groupBy { it.group ?: "Other" }.toSortedMap()
+        filteredChannels.groupBy { it.group?.takeIf { g -> g.isNotBlank() } ?: "Other" }
+            .toSortedMap()
     }
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
@@ -65,29 +104,31 @@ fun WatchTvScreen(
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            text = "Free live TV, sports, news, movies",
+            text = "Free live TV, sports, news, movies — categorised",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp),
         )
 
-        OutlinedButton(
-            onClick = { showPlaylistPicker = true },
+        // ── Category tabs (Bangladesh · Sports · News · Popular · Free) ─────────
+        ScrollableTabRow(
+            selectedTabIndex = DefaultIptvPlaylists.availableCategories.indexOf(selectedCategory).coerceAtLeast(0),
+            edgePadding = 0.dp,
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
         ) {
-            Icon(
-                painter = painterResource(coreUiR.drawable.ic_tv),
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(selectedPlaylist.name)
+            DefaultIptvPlaylists.availableCategories.forEachIndexed { index, category ->
+                Tab(
+                    selected = selectedCategory == category,
+                    onClick = { selectedCategory = category },
+                    text = { Text(category.displayName) },
+                )
+            }
         }
 
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Search channels...") },
+            placeholder = { Text("Search ${selectedCategory.displayName} channels...") },
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
             singleLine = true,
         )
@@ -98,7 +139,7 @@ fun WatchTvScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
                         Spacer(Modifier.height(12.dp))
-                        Text("Loading channels...", style = MaterialTheme.typography.bodyMedium)
+                        Text("Loading ${selectedCategory.displayName} channels...", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
@@ -134,29 +175,6 @@ fun WatchTvScreen(
                 }
             }
         }
-    }
-
-    if (showPlaylistPicker) {
-        AlertDialog(
-            onDismissRequest = { showPlaylistPicker = false },
-            title = { Text("Select Playlist") },
-            text = {
-                Column {
-                    DefaultIptvPlaylists.playlists.forEach { playlist ->
-                        ListItem(
-                            headlineContent = { Text(playlist.name) },
-                            modifier = Modifier.clickable {
-                                selectedPlaylist = playlist
-                                showPlaylistPicker = false
-                            },
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showPlaylistPicker = false }) { Text("Close") }
-            },
-        )
     }
 }
 

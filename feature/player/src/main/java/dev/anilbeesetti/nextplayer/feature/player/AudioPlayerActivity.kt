@@ -18,6 +18,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.anilbeesetti.nextplayer.core.ui.theme.NextPlayerTheme
 import dev.anilbeesetti.nextplayer.feature.player.service.PlayerService
+import dev.anilbeesetti.nextplayer.feature.player.service.stopPlayerSession
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 
@@ -91,6 +92,19 @@ class AudioPlayerActivity : ComponentActivity() {
      * Binds to the PlayerService via MediaController.Builder.buildAsync().
      * The MediaController internally uses bindService(), so we must track
      * the binding state to properly unbind later.
+     *
+     * PHASE 2.1 — QUEUE BUG FIX:
+     * The PlayerService is a singleton; the underlying ExoPlayer survives
+     * Activity destruction. If File A is playing and the user backs out +
+     * taps File B, the new Activity binds to the SAME session that is still
+     * playing File A. Even though we call setMediaItems(mediaItems, ...) the
+     * old audio remains audible for the brief window before the new media
+     * is prepared.
+     *
+     * Fix: explicitly call [MediaController.stopPlayerSession] on the OLD
+     * controller before binding a new one, then on the freshly-bound
+     * controller call `stop()` + `clearMediaItems()` before `setMediaItems`
+     * to guarantee the queue is replaced atomically.
      */
     private fun bindPlayerService(
         uri: Uri,
@@ -101,6 +115,17 @@ class AudioPlayerActivity : ComponentActivity() {
     ) {
         lifecycleScope.launch {
             try {
+                // 1. If a previous controller is still bound (e.g. user opened
+                //    File A then navigated to File B without the activity fully
+                //    destroying), stop the old session first.
+                mediaController?.let { old ->
+                    runCatching {
+                        old.stopPlayerSession()
+                        old.stop()
+                        old.clearMediaItems()
+                    }
+                }
+
                 val token = SessionToken(
                     this@AudioPlayerActivity,
                     ComponentName(this@AudioPlayerActivity, PlayerService::class.java),
@@ -132,9 +157,19 @@ class AudioPlayerActivity : ComponentActivity() {
                         .build()
                 }
 
+                // 2. Hard-stop + clear before queuing the new media. This guarantees
+                //    that even if the underlying service player still holds File A,
+                //    it is stopped before we queue File B. setMediaItems then
+                //    atomically replaces the queue.
+                runCatching {
+                    controller.stop()
+                    controller.clearMediaItems()
+                }
+
                 controller.setMediaItems(mediaItems, startIndex, 0L)
                 controller.playWhenReady = true
                 controller.prepare()
+                controller.play()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to bind MediaController", e)
                 isBound = false
@@ -201,6 +236,19 @@ class AudioPlayerActivity : ComponentActivity() {
     override fun onStop() {
         // Paired with onCreate's bind — release if finishing
         if (isFinishing) {
+            // PHASE 2.1 — back-press must stop audio entirely.
+            // Send STOP_PLAYER_SESSION so the singleton PlayerService tears down
+            // the player (clears media items + stops playback + stops self).
+            // Without this, the user backs out and File A keeps playing in the
+            // background, then opening File B feels "stuck on File A".
+            mediaController?.let { controller ->
+                runCatching {
+                    controller.pause()
+                    controller.stop()
+                    controller.clearMediaItems()
+                    controller.stopPlayerSession()
+                }
+            }
             safelyReleaseController()
         }
         super.onStop()

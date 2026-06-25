@@ -273,3 +273,40 @@ val onSurfaceCupertinoDark = Color(0xFFFFFFFF)
 val surfaceVariantCupertinoDark = Color(0xFF2C2C2E)
 val onSurfaceVariantCupertinoDark = Color(0xFFAEAEB2)
 
+// ════════════════════════════════════════════════════════════════════════════
+// PHASE 1 — Vibrant Google Material palette for the Glassmorphism redesign.
+// Used as gradient accents behind translucent glass surfaces.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Vibrant Google Blue (#4285F4) — primary glass tint. */
+val glassBlue = Color(0xFF4285F4)
+/** Vibrant Google Red (#EA4335) — secondary glass tint (record / live). */
+val glassRed = Color(0xFFEA4335)
+/** Vibrant Google Yellow (#FBBC05) — accent tint (highlights, FAB). */
+val glassYellow = Color(0xFFFBBC05)
+/** Vibrant Google Green (#34A853) — accent tint (success, EQ on). */
+val glassGreen = Color(0xFF34A853)
+/** Vibrant Purple (#9C27B0) — accent tint (vault / privacy). */
+val glassPurple = Color(0xFF9C27B0)
+/** Vibrant Cyan (#00BCD4) — accent tint (downloader / network). */
+val glassCyan = Color(0xFF00BCD4)
+/** Vibrant Orange (#FF6D00) — accent tint (sleep timer, alerts). */
+val glassOrange = Color(0xFFFF6D00)
+
+/** Pre-built vibrant gradients for glass backgrounds. */
+val glassGradientVibrant = listOf(
+    Color(0xFF4285F4), // blue
+    Color(0xFF9C27B0), // purple
+    Color(0xFFEA4335), // red
+)
+val glassGradientCool = listOf(
+    Color(0xFF00BCD4), // cyan
+    Color(0xFF4285F4), // blue
+    Color(0xFF34A853), // green
+)
+val glassGradientWarm = listOf(
+    Color(0xFFFBBC05), // yellow
+    Color(0xFFFF6D00), // orange
+    Color(0xFFEA4335), // red
+)
+

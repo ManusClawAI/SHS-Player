@@ -184,22 +184,18 @@ fun MediaPlayerScreen(
     var audioDelayMs by remember { mutableLongStateOf(0L) }
     var showAudioDelayDialog by remember { mutableStateOf(false) }
 
-    // Apply audio delay to ExoPlayer.
-    // ExoPlayer does not have a direct setAudioDelay API. We apply the offset
-    // by adjusting the audio stream position relative to the video position.
-    // The delay value is stored and applied at the renderer level via the service.
+    // PHASE 6.2 — Wire the audio-delay slider directly to the ExoPlayer audio
+    // pipeline via the singleton [DelayAudioProcessor] that ShsRenderersFactory
+    // injects. Previously this UI wrote the value to metadata extras but never
+    // applied it — now the delay takes effect in real time.
     LaunchedEffect(audioDelayMs) {
         try {
-            (player as? androidx.media3.exoplayer.ExoPlayer)?.let { _exo ->
-                // Store the delay as metadata on the current media item for the service to read
-                if (audioDelayMs != 0L) {
-                    player.currentMediaItem?.let { item ->
-                        val existingExtras = item.mediaMetadata.extras ?: android.os.Bundle()
-                        existingExtras.putLong("audio_delay_ms", audioDelayMs)
-                    }
-                }
-            }
-        } catch (_: Exception) {}
+            dev.anilbeesetti.nextplayer.feature.player.renderers.ShsRenderersFactory
+                .delayAudioProcessor
+                .setDelayMs(audioDelayMs)
+        } catch (e: Exception) {
+            android.util.Log.w("MediaPlayerScreen", "audio delay apply failed", e)
+        }
     }
 
     val bookmarks by viewModel.bookmarks.collectAsState(initial = emptyList())

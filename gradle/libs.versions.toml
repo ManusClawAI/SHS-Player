@@ -37,6 +37,7 @@ nanohttpd = "2.3.1"
 zxing = "3.5.3"
 camerax = "1.4.1"
 mlkit-barcode = "17.3.0"
+youtubedl-android = "0.16.0"
 
 
 [libraries]
@@ -97,6 +98,8 @@ androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycl
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkit-barcode" }
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
+youtubedl-android-library = { group = "com.github.yausername", name = "youtubedl-android", version.ref = "youtubedl-android" }
+youtubedl-android-ffmpeg = { group = "com.github.yausername", name = "youtubedl-android-ffmpeg", version.ref = "youtubedl-android" }
 
 [plugins]
 aboutLibraries = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutlibraries" }

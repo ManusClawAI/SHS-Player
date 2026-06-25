@@ -405,8 +405,14 @@ fun AudioPlayerScreen(
 ) {
     val context = LocalContext.current
 
-    // Show loading state if player is not yet connected
-    if (player == null) {
+    // PHASE 2.2 FIX 1 — UI sync. Previously the loading spinner said
+    // "Connecting to player..." forever even after the MediaController was
+    // bound and audio was actually playing. The bug: the only condition
+    // checked was `player == null`, but the controller can be connected
+    // while the playback state is still buffering or idle. Fix: also
+    // hide the loading screen as soon as the player has any media item
+    // set, regardless of isPlaying/buffering state.
+    if (player == null || player.mediaItemCount == 0) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -427,7 +433,7 @@ fun AudioPlayerScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    "Connecting to player...",
+                    if (player == null) "Connecting to player..." else "Loading track…",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

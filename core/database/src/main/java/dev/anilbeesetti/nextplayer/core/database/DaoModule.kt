@@ -8,6 +8,7 @@ import dev.anilbeesetti.nextplayer.core.database.dao.BookmarkDao
 import dev.anilbeesetti.nextplayer.core.database.dao.DirectoryDao
 import dev.anilbeesetti.nextplayer.core.database.dao.FavoriteDao
 import dev.anilbeesetti.nextplayer.core.database.dao.MediumDao
+import dev.anilbeesetti.nextplayer.core.database.dao.PlaylistDao
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -27,4 +28,7 @@ object DaoModule {
 
     @Provides
     fun provideFavoriteDao(db: MediaDatabase): FavoriteDao = db.favoriteDao()
+
+    @Provides
+    fun providePlaylistDao(db: MediaDatabase): PlaylistDao = db.playlistDao()
 }

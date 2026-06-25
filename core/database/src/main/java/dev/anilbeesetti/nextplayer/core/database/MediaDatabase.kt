@@ -9,12 +9,15 @@ import dev.anilbeesetti.nextplayer.core.database.dao.DirectoryDao
 import dev.anilbeesetti.nextplayer.core.database.dao.FavoriteDao
 import dev.anilbeesetti.nextplayer.core.database.dao.MediumDao
 import dev.anilbeesetti.nextplayer.core.database.dao.MediumStateDao
+import dev.anilbeesetti.nextplayer.core.database.dao.PlaylistDao
 import dev.anilbeesetti.nextplayer.core.database.entities.AudioStreamInfoEntity
 import dev.anilbeesetti.nextplayer.core.database.entities.BookmarkEntity
 import dev.anilbeesetti.nextplayer.core.database.entities.DirectoryEntity
 import dev.anilbeesetti.nextplayer.core.database.entities.FavoriteEntity
 import dev.anilbeesetti.nextplayer.core.database.entities.MediumEntity
 import dev.anilbeesetti.nextplayer.core.database.entities.MediumStateEntity
+import dev.anilbeesetti.nextplayer.core.database.entities.PlaylistEntity
+import dev.anilbeesetti.nextplayer.core.database.entities.PlaylistTrackEntity
 import dev.anilbeesetti.nextplayer.core.database.entities.SubtitleStreamInfoEntity
 import dev.anilbeesetti.nextplayer.core.database.entities.VideoStreamInfoEntity
 
@@ -28,8 +31,10 @@ import dev.anilbeesetti.nextplayer.core.database.entities.VideoStreamInfoEntity
         SubtitleStreamInfoEntity::class,
         BookmarkEntity::class,
         FavoriteEntity::class,
+        PlaylistEntity::class,
+        PlaylistTrackEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class MediaDatabase : RoomDatabase() {
@@ -43,6 +48,8 @@ abstract class MediaDatabase : RoomDatabase() {
     abstract fun bookmarkDao(): BookmarkDao
 
     abstract fun favoriteDao(): FavoriteDao
+
+    abstract fun playlistDao(): PlaylistDao
 
     companion object {
         const val DATABASE_NAME = "media_db"
@@ -206,6 +213,52 @@ abstract class MediaDatabase : RoomDatabase() {
                         PRIMARY KEY(`video_uri`)
                     )
                     """,
+                )
+            }
+        }
+
+        /**
+         * Phase 2.3 — Audio Playlists migration.
+         *
+         * Adds two new tables:
+         *  - `audio_playlists`        (id, name, createdAt, updatedAt)
+         *  - `audio_playlist_tracks`  (playlistId, uri, title, artist, durationMs, order)
+         *
+         * Composite PK on (playlistId, uri) prevents the same file being added
+         * twice to the same playlist. Index on (playlistId, order) keeps the
+         * "ordered track list" query fast even for 1000+ entry playlists.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `audio_playlists` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """,
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_audio_playlists_name` ON `audio_playlists` (`name`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `audio_playlist_tracks` (
+                        `playlistId` INTEGER NOT NULL,
+                        `uri` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `artist` TEXT,
+                        `durationMs` INTEGER NOT NULL,
+                        `order` INTEGER NOT NULL,
+                        PRIMARY KEY(`playlistId`, `uri`),
+                        FOREIGN KEY(`playlistId`) REFERENCES `audio_playlists`(`id`) ON DELETE CASCADE
+                    )
+                    """,
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_audio_playlist_tracks_playlistId_order` ON `audio_playlist_tracks` (`playlistId`, `order`)",
                 )
             }
         }

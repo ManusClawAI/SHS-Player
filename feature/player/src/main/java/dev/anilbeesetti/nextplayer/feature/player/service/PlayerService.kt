@@ -435,12 +435,10 @@ class PlayerService : MediaSessionService() {
             val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
             nm.createNotificationChannel(channel)
         }
-        // Use DefaultRenderersFactory instead of NextRenderersFactory — fixes broken seeking.
-        // The previous ffmpeg-based NextRenderersFactory had known seek issues with several
-        // containers (mkv, mp4 with B-frames). DefaultRenderersFactory uses MediaCodec hardware
-        // decoders which give smooth, keyframe-accurate seeking on all Android versions.
-        val renderersFactory = DefaultRenderersFactory(applicationContext)
-            .setEnableDecoderFallback(true)
+        // Use ShsRenderersFactory (extends DefaultRenderersFactory) instead of
+        // NextRenderersFactory — fixes broken seeking AND injects the
+        // DelayAudioProcessor so the audio-sync UI actually takes effect.
+        val renderersFactory = dev.anilbeesetti.nextplayer.feature.player.renderers.ShsRenderersFactory(applicationContext)
             .setExtensionRendererMode(
                 when (playerPreferences.decoderPriority) {
                     DecoderPriority.DEVICE_ONLY -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF

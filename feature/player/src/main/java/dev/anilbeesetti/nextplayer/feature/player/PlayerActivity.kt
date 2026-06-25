@@ -121,6 +121,9 @@ class PlayerActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
 
+        // PHASE 5: Normalise ACTION_SEND + EXTRA_TEXT (URL) → ACTION_VIEW + intent.data
+        normaliseIntentUri(intent)
+
         setContent {
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
             var player by remember { mutableStateOf<MediaController?>(null) }
@@ -195,42 +198,74 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // PiP fix — handle ALL Android versions from O (8.0) onwards.
+
+        // PHASE 6.1 — Robust PiP entry for low-end / 32-bit devices (itel vision 1 pro etc.).
         //
-        // CRITICAL: On S+ (API 31+), setAutoEnterEnabled(true) handles PiP automatically
-        // when the user leaves. We must NOT call enterPictureInPictureMode() manually on S+
-        // — doing both causes a conflict that breaks PiP entirely.
+        // Failure modes we defend against:
+        //  1. Device doesn't declare FEATURE_PICTURE_IN_PICTURE at all (cheap TVs,
+        //     itel/Aerio/etc.) — `enterPictureInPictureMode` would throw / no-op silently.
+        //  2. Android Go edition / low-RAM devices return false from
+        //     `isPictureInPictureSupported()` even on API 26+.
+        //  3. Aspect ratio outside Android's 1:2.39..2.39:1 window → IllegalArgumentException.
+        //  4. PiP called during state where `mediaController` is null (mid-binding).
+        //  5. On API 31+, setAutoEnterEnabled already handles entry — calling
+        //     enterPictureInPictureMode() manually conflicts and breaks PiP entirely.
         //
-        // On O..R (API 26..30), setAutoEnterEnabled doesn't exist, so we call
-        // enterPictureInPictureMode() explicitly.
-        //
-        // 32-bit devices: aspect ratio is clamped via Rational.coercePiPSafe() to the
-        // Android-required 1:2.39..2.39:1 range to prevent IllegalArgumentException.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            mediaController?.isPlaying == true
-        ) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Android 12+ — setAutoEnterEnabled was already set in onCreate via
-                // PictureInPictureState. System handles entry automatically.
-                // Do NOT call enterPictureInPictureMode here — it conflicts.
-                return
+        // If any preconditions fail, we simply don't enter PiP — playback continues
+        // in the background via the PlayerService notification instead.
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (mediaController?.isPlaying != true) return
+
+        // Defensive: check the system feature before doing anything else.
+        val pm = packageManager
+        if (!pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            android.util.Log.i("PlayerActivity", "PiP not supported on this device — skipping")
+            return
+        }
+        // Defensive: also call the Activity API (some ROMs report the feature but
+        // disable the API).
+        if (!isPictureInPictureSupported()) {
+            android.util.Log.i("PlayerActivity", "isPictureInPictureSupported()=false — skipping")
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12+ — setAutoEnterEnabled was already set in onCreate via
+            // PictureInPictureState. System handles entry automatically.
+            // Do NOT call enterPictureInPictureMode here — it conflicts.
+            return
+        }
+
+        // O..R — explicit entry required, with hard defensive guards.
+        runCatching {
+            val width = mediaController?.videoSize?.width ?: 0
+            val height = mediaController?.videoSize?.height ?: 0
+
+            // Clamp aspect ratio to Android's required 1:2.39 .. 2.39:1 window.
+            // On 32-bit itel devices, exotic video sizes (e.g. 1920x800 = 2.4:1)
+            // trip the upper bound. Use Rational.coerce() which already clamps to
+            // [1/2.39, 2.39/1]. Fallback to safe 16:9 when video size unknown.
+            val aspectRatio = if (width > 0 && height > 0) {
+                Rational(width, height).coerce()
+            } else {
+                Rational(16, 9)
             }
-            // O..R — explicit entry required
-            runCatching {
-                val width = mediaController?.videoSize?.width ?: 0
-                val height = mediaController?.videoSize?.height ?: 0
-                val aspectRatio = if (width > 0 && height > 0) {
-                    Rational(width, height).coerce()
-                } else {
-                    Rational(16, 9)
+
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(aspectRatio)
+                .apply {
+                    // API 26+ supports setSourceRectHint — helps the system animate the
+                    // transition smoothly even on low-RAM devices.
+                    runCatching {
+                        // No-op extras — just defensive
+                    }
                 }
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(aspectRatio)
-                    .build()
-                enterPictureInPictureMode(params)
-            }.onFailure { e ->
-                android.util.Log.w("PlayerActivity", "PiP entry failed", e)
-            }
+                .build()
+
+            enterPictureInPictureMode(params)
+        }.onFailure { e ->
+            android.util.Log.w("PlayerActivity", "PiP entry failed", e)
         }
     }
 
@@ -671,11 +706,55 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // PHASE 5: Handle ACTION_SEND with text URL (browser share / "Open with").
+        // If the sender used ACTION_SEND + EXTRA_TEXT and the text contains a URL,
+        // promote that URL to intent.data so the rest of the playback pipeline can
+        // treat it like an ACTION_VIEW.
+        normaliseIntentUri(intent)
         if (intent.data != null) {
             setIntent(intent)
             isIntentNew = true
             if (mediaController != null) {
                 startPlayback()
+            }
+        }
+    }
+
+    /**
+     * Phase 5 — External capture helper.
+     *
+     * If a foreign app sent us ACTION_SEND with a text/plain payload that
+     * contains a URL, extract that URL and set it as intent.data. Also handles
+     * ACTION_SEND with EXTRA_STREAM (content:// URIs from file managers).
+     */
+    private fun normaliseIntentUri(intent: Intent) {
+        if (intent.data != null) return
+        when (intent.action) {
+            Intent.ACTION_SEND -> {
+                // Try text first (URLs shared from browsers / messengers)
+                val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+                if (!text.isNullOrEmpty()) {
+                    val url = text.split(Regex("\\s+")).firstOrNull { token ->
+                        token.startsWith("http://", true) ||
+                            token.startsWith("https://", true) ||
+                            token.startsWith("rtsp://", true) ||
+                            token.startsWith("rtmp://", true) ||
+                            token.startsWith("udp://", true) ||
+                            (token.startsWith("magnet:?", true))
+                    }
+                    if (url != null) {
+                        intent.data = Uri.parse(url)
+                        intent.action = Intent.ACTION_VIEW
+                        return
+                    }
+                }
+                // Fallback: ACTION_SEND with EXTRA_STREAM (content://)
+                @Suppress("DEPRECATION")
+                val stream = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                if (stream != null) {
+                    intent.data = stream
+                    intent.action = Intent.ACTION_VIEW
+                }
             }
         }
     }

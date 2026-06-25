@@ -69,6 +69,13 @@ dependencies {
     // LibVLC — used as alternative engine for problematic codecs & audio equalizer
     implementation(libs.libvlc.android)
 
+    // Phase 4 — Universal downloader (yt-dlp wrapper).
+    // Loaded via jitpack (com.github.yausername). The native lib is heavy but
+    // optional — UniversalDownloader uses reflection so the app doesn't crash
+    // if the user removes this dependency.
+    implementation(libs.youtubedl.android.library)
+    implementation(libs.youtubedl.android.ffmpeg)
+
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.guava)
 
