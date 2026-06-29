@@ -869,6 +869,16 @@
                 <action android:name="androidx.media3.session.MediaSessionService"/>
             </intent-filter>
         </service>
+    
+        <!-- VlcPlaybackService — background media playback via LibVLC.
+             Handles foreground service notification so VLC audio continues
+             when the app goes to background. Separate from PlayerService
+             (ExoPlayer / Media3) which handles ExoPlayer background playback. -->
+        <service
+            android:name=".engine.VlcPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
     </application>
 
 </manifest>
