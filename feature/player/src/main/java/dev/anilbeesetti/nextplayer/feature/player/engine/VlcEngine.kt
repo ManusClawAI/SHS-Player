@@ -59,9 +59,13 @@ class VlcEngine(private val context: Context) {
         try {
             if (surface != null) {
                 vout.setVideoSurface(surface, null)
-                vout.attachViews()
+                if (!vout.areViewsAttached()) {
+                    vout.attachViews()
+                }
             } else {
-                vout.detachViews()
+                if (vout.areViewsAttached()) {
+                    vout.detachViews()
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "setSurface failed", e)
