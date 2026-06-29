@@ -97,8 +97,9 @@ class AudioDelayState {
     private fun applyViaVlc() {
         val engine = vlcEngine ?: return
         runCatching {
-            // VLC expects MICROSECONDS (per MediaPlayer.java:1113)
-            engine.setAudioDelay(delayMs * 1000L)
+            // VlcEngine.setAudioDelay(ms) already converts ms→μs internally (delayMs * 1000L).
+            // Passing delayMs * 1000L here would result in nanoseconds — do NOT multiply again.
+            engine.setAudioDelay(delayMs)
         }.onFailure { Log.w("AudioDelay", "VLC setAudioDelay failed", it) }
     }
 
