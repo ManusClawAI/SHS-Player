@@ -17,30 +17,34 @@ import java.util.ArrayDeque
  * finally hooks the UI slider to actual audio offset.
  *
  * How it works:
- *  - Positive `delayMs` → hold back N ms of audio before releasing it. Audio
- *    "plays later", which makes the video appear to lead.
- *  - Negative `delayMs` → skip N ms of audio at the start of each playback
- *    chunk so audio effectively plays earlier.
+ *  - Positive `delayMs` → prepend N ms of silence before audio starts.
+ *    Audio "plays later", which makes the video appear to lead.
+ *  - Negative `delayMs` → skip N ms of audio at the start so audio
+ *    effectively plays earlier (advances relative to video).
  *
  * Range: -10000 ms .. +10000 ms (matches the UI range).
+ *
+ * Bug fix: the previous implementation had inverted logic in drainOutput() —
+ * the bytesToPad branch was advancing past audio bytes (skipping audio) instead
+ * of prepending silence. It now correctly outputs zero-filled silence chunks
+ * BEFORE passing real audio through.
  */
 class DelayAudioProcessor : BaseAudioProcessor() {
 
-    /**
-     * Empty companion object — kept for any future @JvmStatic helpers.
-     * (Previously had two companion objects which caused a compile error.)
-     */
     companion object {
         private const val TAG = "DelayAudioProcessor"
         private val EMPTY_BUFFER: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
+        /** Max silence chunk size emitted per drainOutput() call to avoid huge allocations. */
+        private const val SILENCE_CHUNK_BYTES = 8192
     }
 
     @Volatile
     private var requestedDelayMs: Long = 0L
 
-    private var delayBytes: Long = 0L
-    private var bytesToSkip: Long = 0L
+    /** Bytes of silence still to be output before passing real audio (positive delay). */
     private var bytesToPad: Long = 0L
+    /** Bytes of real audio still to be skipped from input (negative delay). */
+    private var bytesToSkip: Long = 0L
 
     private val inputBuffers: ArrayDeque<ByteBuffer> = ArrayDeque()
     private var currentOutput: ByteBuffer = EMPTY_BUFFER
@@ -64,7 +68,7 @@ class DelayAudioProcessor : BaseAudioProcessor() {
             requestedDelayMs = clamped
             pendingAudioFormat?.let { recomputeDelayBytes(it) }
         }
-        Log.d(TAG, "setDelayMs($delayMs) → $clamped ms (delayBytes=$delayBytes)")
+        Log.d(TAG, "setDelayMs($delayMs) → $clamped ms")
     }
 
     fun getDelayMs(): Long = requestedDelayMs
@@ -75,52 +79,65 @@ class DelayAudioProcessor : BaseAudioProcessor() {
         val bytesPerSample = 2 // PCM_16BIT
         val frameSize = bytesPerSample * channels
         val ms = requestedDelayMs
-        delayBytes = (ms * sampleRate * frameSize) / 1000L
+        val absBytes = Math.abs(ms) * sampleRate * frameSize / 1000L
         if (ms >= 0L) {
-            bytesToPad = delayBytes
+            bytesToPad = absBytes
             bytesToSkip = 0L
         } else {
             bytesToPad = 0L
-            bytesToSkip = -delayBytes
+            bytesToSkip = absBytes
         }
     }
 
+    /**
+     * Queue input audio. Applies skip immediately for negative delay so
+     * audio arrives at drainOutput already trimmed.
+     */
     override fun queueInput(inputBuffer: ByteBuffer) {
         synchronized(this) {
-            val copy = ByteBuffer.allocateDirect(inputBuffer.remaining()).order(ByteOrder.nativeOrder())
-            copy.put(inputBuffer.duplicate()).flip()
+            var src = ByteBuffer.allocateDirect(inputBuffer.remaining()).order(ByteOrder.nativeOrder())
+            src.put(inputBuffer.duplicate()).flip()
             inputBuffer.position(inputBuffer.limit())
-            inputBuffers.add(copy)
+
+            // Negative delay: discard leading audio bytes so audio appears earlier
+            if (bytesToSkip > 0L && src.hasRemaining()) {
+                val skipNow = minOf(bytesToSkip, src.remaining().toLong()).toInt()
+                bytesToSkip -= skipNow
+                src.position(src.position() + skipNow)
+            }
+
+            if (src.hasRemaining()) {
+                inputBuffers.add(src)
+            }
             drainOutput()
         }
     }
 
     private fun drainOutput() {
         if (currentOutput.hasRemaining()) return
+
+        // Positive delay: emit silence chunks BEFORE real audio.
+        // ByteBuffer.allocateDirect is zero-filled by the JVM — no manual fill needed.
+        if (bytesToPad > 0L) {
+            val silenceSize = minOf(bytesToPad, SILENCE_CHUNK_BYTES.toLong()).toInt()
+            bytesToPad -= silenceSize
+            val silence = ByteBuffer.allocateDirect(silenceSize).order(ByteOrder.nativeOrder())
+            silence.position(silenceSize) // mark all bytes as written
+            silence.flip()               // set limit=silenceSize, position=0
+            currentOutput = silence
+            return
+        }
+
         if (inputBuffers.isEmpty()) {
             currentOutput = EMPTY_BUFFER
             return
         }
+
         val totalBytes = inputBuffers.sumOf { it.remaining() }
         val merged = ByteBuffer.allocateDirect(totalBytes).order(ByteOrder.nativeOrder())
         while (inputBuffers.isNotEmpty()) merged.put(inputBuffers.removeFirst())
         merged.flip()
-
-        currentOutput = when {
-            bytesToPad > 0L -> {
-                val padNow = minOf(bytesToPad, merged.remaining().toLong()).toInt()
-                bytesToPad -= padNow.toLong()
-                merged.position(merged.position() + padNow)
-                merged
-            }
-            bytesToSkip > 0L -> {
-                val skipNow = minOf(bytesToSkip, merged.remaining().toLong()).toInt()
-                bytesToSkip -= skipNow.toLong()
-                merged.position(merged.position() + skipNow)
-                merged
-            }
-            else -> merged
-        }
+        currentOutput = merged
     }
 
     override fun getOutput(): ByteBuffer {
@@ -143,9 +160,8 @@ class DelayAudioProcessor : BaseAudioProcessor() {
     override fun onReset() {
         synchronized(this) {
             requestedDelayMs = 0L
-            delayBytes = 0L
-            bytesToSkip = 0L
             bytesToPad = 0L
+            bytesToSkip = 0L
             inputBuffers.clear()
             currentOutput = EMPTY_BUFFER
             pendingAudioFormat = null
