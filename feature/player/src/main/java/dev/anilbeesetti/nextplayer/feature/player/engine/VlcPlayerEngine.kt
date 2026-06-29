@@ -173,6 +173,7 @@ class VlcPlayerEngine(private val context: Context) {
         val lcLibVlc = libVlc ?: return
         try {
             currentMedia?.release()
+            currentMedia = null
             val media = Media(lcLibVlc, uri).apply {
                 // Hardware acceleration by default, fallback to software
                 setHWDecoderEnabled(true, true)
@@ -186,8 +187,11 @@ class VlcPlayerEngine(private val context: Context) {
                     addOption(":clock-jitter=0")
                 }
             }
-            currentMedia = media
             mp.media = media
+            // Release our reference — MediaPlayer has already incremented its own refcount.
+            // Keeping our ref would cause a native memory leak. release() in VlcPlayerEngine
+            // will call mp.release() which handles the MediaPlayer's internal ref.
+            media.release()
         } catch (e: Exception) {
             Log.e(TAG, "setDataSource failed", e)
             eventListeners.forEach { it.onError(e.message) }
