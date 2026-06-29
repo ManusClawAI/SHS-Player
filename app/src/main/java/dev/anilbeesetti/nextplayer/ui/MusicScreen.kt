@@ -287,15 +287,20 @@ fun addBatchSongsToPlaylist(context: Context, playlistName: String, ids: Set<Lon
 
 fun playAudio(context: Context, item: MusicItem, queue: List<MusicItem> = emptyList()) {
     addRecentMusic(context, item.id)
-    // Launch dedicated AudioPlayerActivity so audio shows album art UI — NOT black video surface
+    val effectiveQueue = queue.ifEmpty { listOf(item) }
+    val startIndex = effectiveQueue.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
     val intent = Intent(context, dev.anilbeesetti.nextplayer.feature.player.AudioPlayerActivity::class.java).apply {
         action = Intent.ACTION_VIEW
         data = item.uri
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         putExtra("title", item.title)
         putExtra("artist", item.artist)
-        if (queue.size > 1) {
-            putParcelableArrayListExtra("audio_queue", ArrayList(queue.map { it.uri }))
+        putExtra(dev.anilbeesetti.nextplayer.feature.player.AudioPlayerActivity.EXTRA_QUEUE_INDEX, startIndex)
+        if (effectiveQueue.size > 1) {
+            putParcelableArrayListExtra(
+                dev.anilbeesetti.nextplayer.feature.player.AudioPlayerActivity.EXTRA_QUEUE,
+                ArrayList(effectiveQueue.map { it.uri }),
+            )
         }
     }
     context.startActivity(intent)

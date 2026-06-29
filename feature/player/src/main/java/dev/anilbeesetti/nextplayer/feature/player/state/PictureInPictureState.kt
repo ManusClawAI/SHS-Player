@@ -11,8 +11,10 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.os.Build
 import android.os.Process
+import android.provider.Settings
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
@@ -81,6 +83,25 @@ class PictureInPictureState(
             true
         }
 
+    /** True when the user has granted "Draw over other apps" (SYSTEM_ALERT_WINDOW). */
+    val hasOverlayPermission: Boolean
+        get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(activity)
+        } else {
+            true
+        }
+
+    /** Open the system page where the user can grant Draw over other apps. */
+    fun openOverlayPermissionSettings() {
+        runCatching {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:${activity.packageName}"),
+            )
+            activity.startActivity(intent)
+        }
+    }
+
     var isInPictureInPictureMode: Boolean by mutableStateOf(false)
         private set
 
@@ -110,8 +131,17 @@ class PictureInPictureState(
         if (pictureInPictureParamsBuilder == null) return false
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         if (isInPictureInPictureMode) return false
-
-        return activity.enterPictureInPictureMode(pictureInPictureParamsBuilder.build())
+        // Request Draw-over-apps permission first on devices that need it
+        if (!hasOverlayPermission) {
+            openOverlayPermissionSettings()
+            return false
+        }
+        return try {
+            activity.enterPictureInPictureMode(pictureInPictureParamsBuilder.build())
+        } catch (e: Exception) {
+            // 32-bit phones and certain custom ROMs may crash here — suppress gracefully
+            false
+        }
     }
 
     fun openPictureInPictureSettings() {

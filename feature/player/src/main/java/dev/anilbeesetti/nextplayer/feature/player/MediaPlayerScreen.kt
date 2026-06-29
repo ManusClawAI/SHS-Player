@@ -452,6 +452,39 @@ fun MediaPlayerScreen(
                             icon = painterResource(coreUiR.drawable.ic_brightness),
                         )
                     }
+
+                    // Expand/Collapse toggle — always visible; tapping shows or hides all controls
+                    if (!controlsVisibilityState.controlsLocked) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(36.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                            onClick = {
+                                if (controlsVisibilityState.controlsVisible) {
+                                    controlsVisibilityState.hideControls()
+                                } else {
+                                    controlsVisibilityState.showControls()
+                                }
+                            },
+                        ) {
+                            Icon(
+                                painter = painterResource(
+                                    if (controlsVisibilityState.controlsVisible) {
+                                        coreUiR.drawable.ic_close
+                                    } else {
+                                        coreUiR.drawable.ic_more_vert
+                                    },
+                                ),
+                                contentDescription = if (controlsVisibilityState.controlsVisible) "Hide controls" else "Show controls",
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .fillMaxSize(),
+                                tint = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
                 }
             }
 

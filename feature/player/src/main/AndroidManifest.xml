@@ -851,6 +851,16 @@
             </intent-filter>
         </activity>
 
+        <!-- VlcPlayerActivity — libVLC-backed player engine (Task 1 upgrade).
+             Launched explicitly via Intent; not exported to other apps. -->
+        <activity
+            android:name=".engine.VlcPlayerActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+            android:theme="@style/NextPlayer"
+            android:supportsPictureInPicture="true" />
+
         <service
             android:name=".service.PlayerService"
             android:exported="true"

@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -91,6 +92,9 @@ fun P2pPermissionSetupCard(
     }
     val permissionsState = rememberMultiplePermissionsState(permissions = requiredPermissions)
     val allPermsGranted = permissionsState.revokedPermissions.isEmpty()
+    val cameraGranted = ContextCompat.checkSelfPermission(
+        context, Manifest.permission.CAMERA,
+    ) == PackageManager.PERMISSION_GRANTED
 
     val allReady = wifiEnabled && locationEnabled && allPermsGranted
 
@@ -121,10 +125,10 @@ fun P2pPermissionSetupCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            // Status chips
+            // Status chips — Wi-Fi, Location, Camera, Other Permissions
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 StatusChip(
                     label = "Wi-Fi",
@@ -137,7 +141,12 @@ fun P2pPermissionSetupCard(
                     modifier = Modifier.weight(1f),
                 )
                 StatusChip(
-                    label = "Permissions",
+                    label = "Camera",
+                    enabled = cameraGranted,
+                    modifier = Modifier.weight(1f),
+                )
+                StatusChip(
+                    label = "Other",
                     enabled = allPermsGranted,
                     modifier = Modifier.weight(1f),
                 )
@@ -147,30 +156,29 @@ fun P2pPermissionSetupCard(
             Button(
                 onClick = {
                     when {
-                        // Step 1: enable Wi-Fi (system settings)
+                        // Step 1: enable Wi-Fi
                         !wifiEnabled -> {
-                            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                Intent(Settings.ACTION_WIFI_SETTINGS)
-                            } else {
-                                // Pre-Q: we can toggle directly via WifiManager
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                                // Pre-Q: toggle WiFi programmatically, then refresh state
                                 @Suppress("DEPRECATION")
                                 val wm = context.getSystemService(Context.WIFI_SERVICE)
                                     as android.net.wifi.WifiManager
                                 @Suppress("DEPRECATION")
                                 wm.isWifiEnabled = true
-                                null
+                                wifiEnabled = wm.isWifiEnabled
+                            } else {
+                                settingsLauncher.launch(Intent(Settings.ACTION_WIFI_SETTINGS))
                             }
-                            intent?.let { settingsLauncher.launch(it) }
                         }
                         // Step 2: enable Location
                         !locationEnabled -> {
                             settingsLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                         }
-                        // Step 3: request runtime permissions
+                        // Step 3: request runtime permissions (includes Camera)
                         !allPermsGranted -> {
                             permissionsState.launchMultiplePermissionRequest()
                         }
-                        // Step 4: all ready — invoke callback
+                        // Step 4: all ready
                         else -> onAllReady()
                     }
                 },
@@ -178,15 +186,19 @@ fun P2pPermissionSetupCard(
                 shape = RoundedCornerShape(12.dp),
             ) {
                 val label = when {
-                    !wifiEnabled -> "Tap to turn on Wi-Fi"
-                    !locationEnabled -> "Tap to turn on Location"
-                    !allPermsGranted -> "Grant permissions"
+                    !wifiEnabled -> "Turn on Wi-Fi"
+                    !locationEnabled -> "Turn on Location"
+                    !allPermsGranted -> "Grant Camera & Permissions"
                     else -> "Start sharing files"
                 }
                 Text(label, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(8.dp))
                 Icon(
-                    imageVector = if (!wifiEnabled) Icons.Default.Wifi else Icons.Default.LocationOn,
+                    imageVector = when {
+                        !wifiEnabled -> Icons.Default.Wifi
+                        !cameraGranted -> Icons.Default.CameraAlt
+                        else -> Icons.Default.LocationOn
+                    },
                     contentDescription = null,
                 )
             }

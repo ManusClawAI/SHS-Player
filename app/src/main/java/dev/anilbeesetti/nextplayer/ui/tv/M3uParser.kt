@@ -29,17 +29,24 @@ data class IptvChannel(
 }
 
 /**
- * Phase 8 — Top-level Live TV categories shown as front-page tabs.
- *
- * Order matters — it's the order shown in the UI. "Bangladesh" first because
- * the app's primary audience is Bangla-speaking users.
+ * Top-level Live TV categories shown as front-page tabs.
+ * Country-wise dedicated tabs + special content categories.
+ * Order matters — shown left-to-right in the UI.
  */
 enum class IptvCategory(val displayName: String) {
-    BANGLADESH("Bangladesh"),
-    SPORTS("Sports"),
-    NEWS("News"),
-    POPULAR("Popular"),
-    FREE("Free Channels"),
+    BANGLADESH("🇧🇩 Bangladesh"),
+    INDIA("🇮🇳 India"),
+    PAKISTAN("🇵🇰 Pakistan"),
+    USA("🇺🇸 USA"),
+    UK("🇬🇧 UK"),
+    TURKEY("🇹🇷 Turkey"),
+    ARABIC("🌍 Arabic"),
+    SPORTS("⚽ Sports"),
+    NEWS("📰 News"),
+    MOVIES("🎬 Movies"),
+    KIDS("🧒 Kids"),
+    MUSIC("🎵 Music"),
+    INTERNATIONAL("🌐 International"),
     OTHER("Other"),
 }
 
@@ -49,76 +56,153 @@ object IptvCategoryResolver {
      * Heuristic mapping from (channel name + group) → top-level category.
      *
      * Rules (in order):
-     *  1. Bangladesh country code (.bd) or known BD channel names → BANGLADESH
-     *  2. Group / name contains sports keywords → SPORTS
-     *  3. Group / name contains news keywords → NEWS
-     *  4. Country code in BD_NEIGHBOURS list (IN, PK) and not already categorised
-     *     → POPULAR (regional popular)
-     *  5. Everything else → FREE (since all our default playlists are free iptv-org)
-     *
-     * The "POPULAR" bucket is reserved for channels that appear in multiple
-     * categories or are widely-watched regional channels.
+     *  1. Bangladesh (.bd tvgId / known BD name keywords) → BANGLADESH
+     *  2. India (.in tvgId / Star, Zee, Sony, NDTV keywords)  → INDIA
+     *  3. Pakistan (.pk tvgId / ARY, GEO keywords)            → PAKISTAN
+     *  4. USA (.us tvgId / CNN, Fox, NBC keywords)            → USA
+     *  5. UK (.gb / .uk tvgId / BBC, ITV keywords)            → UK
+     *  6. Turkey (.tr tvgId / TRT, ATV keywords)              → TURKEY
+     *  7. Arabic language keywords                            → ARABIC
+     *  8. Sports category keywords                            → SPORTS
+     *  9. News category keywords                              → NEWS
+     * 10. Movie keywords                                      → MOVIES
+     * 11. Kids keywords                                       → KIDS
+     * 12. Music keywords                                      → MUSIC
+     * 13. Everything else                                     → INTERNATIONAL
      */
     fun resolve(channel: IptvChannel): IptvCategory {
         val haystack = listOfNotNull(channel.name, channel.group, channel.tvgName)
             .joinToString(" ")
             .lowercase()
+        val tvgId = channel.tvgId?.lowercase() ?: ""
 
-        // 1. Bangladesh — by channel name keyword or .bd country code in URL
+        // 1. Bangladesh
         val bdName = BD_CHANNEL_KEYWORDS.any { haystack.contains(it) }
-        val bdUrl = channel.url.contains(".bd", ignoreCase = true) ||
-            channel.tvgId?.endsWith(".bd", ignoreCase = true) == true
+        val bdUrl = channel.url.contains(".bd", ignoreCase = true) || tvgId.endsWith(".bd")
         if (bdName || bdUrl) return IptvCategory.BANGLADESH
 
-        // 2. Sports
+        // 2. India
+        val inUrl = tvgId.endsWith(".in")
+        val inName = INDIA_KEYWORDS.any { haystack.contains(it) }
+        if (inUrl || inName) return IptvCategory.INDIA
+
+        // 3. Pakistan
+        val pkUrl = tvgId.endsWith(".pk")
+        val pkName = PAKISTAN_KEYWORDS.any { haystack.contains(it) }
+        if (pkUrl || pkName) return IptvCategory.PAKISTAN
+
+        // 4. USA
+        val usUrl = tvgId.endsWith(".us")
+        val usName = USA_KEYWORDS.any { haystack.contains(it) }
+        if (usUrl || usName) return IptvCategory.USA
+
+        // 5. UK
+        val ukUrl = tvgId.endsWith(".gb") || tvgId.endsWith(".uk")
+        val ukName = UK_KEYWORDS.any { haystack.contains(it) }
+        if (ukUrl || ukName) return IptvCategory.UK
+
+        // 6. Turkey
+        val trUrl = tvgId.endsWith(".tr")
+        val trName = TURKEY_KEYWORDS.any { haystack.contains(it) }
+        if (trUrl || trName) return IptvCategory.TURKEY
+
+        // 7. Arabic / Middle-East
+        val arName = ARABIC_KEYWORDS.any { haystack.contains(it) }
+        if (arName) return IptvCategory.ARABIC
+
+        // 8. Sports
         if (SPORTS_KEYWORDS.any { haystack.contains(it) }) return IptvCategory.SPORTS
 
-        // 3. News
+        // 9. News
         if (NEWS_KEYWORDS.any { haystack.contains(it) }) return IptvCategory.NEWS
 
-        // 4. Popular — regional heavy-hitters (BD already filtered out above)
-        if (POPULAR_KEYWORDS.any { haystack.contains(it) }) return IptvCategory.POPULAR
+        // 10. Movies
+        if (MOVIE_KEYWORDS.any { haystack.contains(it) }) return IptvCategory.MOVIES
 
-        // 5. Everything else is free
-        return IptvCategory.FREE
+        // 11. Kids
+        if (KIDS_KEYWORDS.any { haystack.contains(it) }) return IptvCategory.KIDS
+
+        // 12. Music
+        if (MUSIC_KEYWORDS.any { haystack.contains(it) }) return IptvCategory.MUSIC
+
+        // 13. International catch-all
+        return IptvCategory.INTERNATIONAL
     }
 
-    /** Known Bangladeshi channel name fragments (lowercase). */
     private val BD_CHANNEL_KEYWORDS = listOf(
-        "atn", "bangla", "bd", "bangladesh", "boishakhi", "channel i", "chattagram",
-        "desh", "ekattor", "gtv", "jamuna", "maasranga", "nagorik", "news24",
-        "rtv", "sangsad", "somoy", "swift", "tara", "tvsomoy", "zainga",
-        "deepto", "asian tv", "ntv", "rtv", "mytv", "boomerang", "bijoy",
-        "bongo", "bongobd", "rb tv", "dhaka", "duronto", "gazi", "islam",
-        "peoples tv", "real tv", "sk tv", " times",
+        "atn", "bangla", "bangladesh", "boishakhi", "channel i", "chattagram",
+        "desh", "ekattor", "gtv", "jamuna", "maasranga", "nagorik",
+        "rtv", "sangsad", "somoy", "tvsomoy", "zainga", "deepto",
+        "asian tv", "ntv", "mytv", "bijoy", "bongo", "bongobd", "rb tv",
+        "dhaka", "duronto", "gazi", "peoples tv", "real tv", "sk tv",
+        "news24 bangla", "independent tv", "channel 9",
+    )
+
+    private val INDIA_KEYWORDS = listOf(
+        "star plus", "star gold", "star jalsha", "star pravah", "star vijay",
+        "sony", "zee tv", "zee cinema", "colors tv", "set max", "sab tv", "&tv",
+        "ndtv", "aaj tak", "india today", "times now", "wion", "republic",
+        "sun tv", "colors kannada", "zee kannada", "maa tv",
+        "dd national", "doordarshan", "india", " in ",
+    )
+
+    private val PAKISTAN_KEYWORDS = listOf(
+        "ary news", "geo news", "samaa", "dawn news", "hum tv",
+        "express news", "92 news", "bol news", "duniya news",
+        "ptv", "pakistan", "urdu 1", "urdu one", "a plus",
+    )
+
+    private val USA_KEYWORDS = listOf(
+        "cnn", "fox news", "msnbc", "abc news", "nbc news", "cbs news",
+        "hbo", "showtime", "cinemax", "amc", "tnt", "tbs", "fx", "syfy",
+        "usa network", "bravo", "mtv usa", "espn",
+    )
+
+    private val UK_KEYWORDS = listOf(
+        "bbc one", "bbc two", "bbc three", "bbc four", "itv", "channel 4",
+        "channel 5", "sky one", "sky atlantic", "sky sports", "bt sport",
+        "british", "uk tv", " uk ",
+    )
+
+    private val TURKEY_KEYWORDS = listOf(
+        "trt", "show tv", "atv", "kanal d", "star tv turkish",
+        "fox turkey", "cnn turk", "ntv turkey", "haber turk",
+        "türkiye", "turkey", "turk", "türk",
+    )
+
+    private val ARABIC_KEYWORDS = listOf(
+        "al jazeera", "mbc", "rotana", "osn", "beout", "al arabiya",
+        "al mayadeen", "lbc", "future tv", "mtv arabic", "nile tv",
+        "egypt", "saudi", "dubai", "qatar", "kuwait", "jordan tv",
+        "arabic", "arab", "عربي",
     )
 
     private val SPORTS_KEYWORDS = listOf(
-        "sport", "sports", "espn", "fox sport", "sky sport", "tnt sport",
-        "bein", "nba", "nfl", "nhl", "mlb", "ufc", "wwe", "f1", "motogp",
+        "sport", "sports", "espn", "bein", "fox sport", "sky sport", "tnt sport",
+        "nba", "nfl", "nhl", "mlb", "ufc", "wwe", "f1", "motogp",
         "epl", "la liga", "serie a", "bundesliga", "champions league",
         "cricket", "football", "soccer", "wrestling", "boxing", "golf",
-        "tennis", "olympic", "red bull", "supercross", "live sport",
+        "tennis", "olympic", "supercross", "live sport",
     )
 
     private val NEWS_KEYWORDS = listOf(
-        "news", "cnn", "bbc", "al jazeera", "ndtv", "abp", "republic",
-        "france 24", "dw", "abc news", "nbc news", "cbs news", "sky news",
-        "fox news", "msnbc", "rt news", "euro news", "aaj tak", "india today",
-        "times now", "wion", "press tv", "trt world", "cnbc", "bloomberg",
-        "ary news", "geo news", "samaa", "dawn news", "ndtv",
+        "news", "france 24", "dw", "rt news", "euro news",
+        "press tv", "trt world", "cnbc", "bloomberg",
+        "breaking", "news channel",
     )
 
-    private val POPULAR_KEYWORDS = listOf(
-        // Regional major networks (non-news, non-sports)
-        "star plus", "star gold", "sony", "zee tv", "zee cinema", "colors tv",
-        "set max", "sab tv", "&tv", "star jalsha", "star pravah", "star vijay",
-        "hotstar", "hbo", "showtime", "cinemax", "axn", "fox life",
-        "discovery", "national geographic", "animal planet", "history",
-        "cartoon", "nickelodeon", "disney", "pogo", "tnt", "tbs", "amc",
-        "fx", "syfy", "usa network", "bravo", "mtv", "vh1",
-        // Generic "popular" markers
-        "popular", "trending", "top", "hit", "best",
+    private val MOVIE_KEYWORDS = listOf(
+        "movie", "movies", "cinema", "film", "films", "cine",
+        "hollywood", "bollywood", "action", "thriller",
+    )
+
+    private val KIDS_KEYWORDS = listOf(
+        "kids", "children", "cartoon", "nickelodeon", "disney", "pogo",
+        "nick jr", "cartoon network", "baby", "junior",
+    )
+
+    private val MUSIC_KEYWORDS = listOf(
+        "music", "mtv", "vh1", "radio", "hits", "beats", "melody",
     )
 }
 
@@ -231,27 +315,28 @@ object DefaultIptvPlaylists {
     data class Playlist(val name: String, val url: String, val category: IptvCategory)
 
     val playlists = listOf(
-        // Bangladesh — primary audience
+        // ── Country-specific dedicated tabs ───────────────────────────────────
         Playlist("Bangladesh TV", "https://iptv-org.github.io/iptv/countries/bd.m3u", IptvCategory.BANGLADESH),
+        Playlist("India TV", "https://iptv-org.github.io/iptv/countries/in.m3u", IptvCategory.INDIA),
+        Playlist("Pakistan TV", "https://iptv-org.github.io/iptv/countries/pk.m3u", IptvCategory.PAKISTAN),
+        Playlist("USA TV", "https://iptv-org.github.io/iptv/countries/us.m3u", IptvCategory.USA),
+        Playlist("UK TV", "https://iptv-org.github.io/iptv/countries/gb.m3u", IptvCategory.UK),
+        Playlist("Turkey TV", "https://iptv-org.github.io/iptv/countries/tr.m3u", IptvCategory.TURKEY),
+        Playlist("Arabic TV", "https://iptv-org.github.io/iptv/languages/ara.m3u", IptvCategory.ARABIC),
 
-        // India (large Bangla-adjacent audience + lots of regional channels)
-        Playlist("India TV", "https://iptv-org.github.io/iptv/countries/in.m3u", IptvCategory.POPULAR),
-
-        // Sports
+        // ── Content-type categories ───────────────────────────────────────────
         Playlist("Sports", "https://iptv-org.github.io/iptv/categories/sports.m3u", IptvCategory.SPORTS),
-
-        // News
         Playlist("News", "https://iptv-org.github.io/iptv/categories/news.m3u", IptvCategory.NEWS),
+        Playlist("Movies", "https://iptv-org.github.io/iptv/categories/movies.m3u", IptvCategory.MOVIES),
+        Playlist("Kids", "https://iptv-org.github.io/iptv/categories/kids.m3u", IptvCategory.KIDS),
+        Playlist("Music", "https://iptv-org.github.io/iptv/categories/music.m3u", IptvCategory.MUSIC),
 
-        // Movies + Kids + Music → "Popular" bucket
-        Playlist("Movies", "https://iptv-org.github.io/iptv/categories/movies.m3u", IptvCategory.POPULAR),
-        Playlist("Kids", "https://iptv-org.github.io/iptv/categories/kids.m3u", IptvCategory.POPULAR),
-        Playlist("Music", "https://iptv-org.github.io/iptv/categories/music.m3u", IptvCategory.POPULAR),
-
-        // Other countries — broad free channels pool
-        Playlist("USA", "https://iptv-org.github.io/iptv/countries/us.m3u", IptvCategory.FREE),
-        Playlist("UK", "https://iptv-org.github.io/iptv/countries/uk.m3u", IptvCategory.FREE),
-        Playlist("Pakistan", "https://iptv-org.github.io/iptv/countries/pk.m3u", IptvCategory.FREE),
+        // ── International catch-all ───────────────────────────────────────────
+        Playlist("France TV", "https://iptv-org.github.io/iptv/countries/fr.m3u", IptvCategory.INTERNATIONAL),
+        Playlist("Germany TV", "https://iptv-org.github.io/iptv/countries/de.m3u", IptvCategory.INTERNATIONAL),
+        Playlist("Canada TV", "https://iptv-org.github.io/iptv/countries/ca.m3u", IptvCategory.INTERNATIONAL),
+        Playlist("Australia TV", "https://iptv-org.github.io/iptv/countries/au.m3u", IptvCategory.INTERNATIONAL),
+        Playlist("Russia TV", "https://iptv-org.github.io/iptv/countries/ru.m3u", IptvCategory.INTERNATIONAL),
     )
 
     /** All playlists that contribute to a given category. */
