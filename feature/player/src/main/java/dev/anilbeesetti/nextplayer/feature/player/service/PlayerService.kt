@@ -480,13 +480,11 @@ class PlayerService : MediaSessionService() {
                 playerPreferences.requireAudioFocus,
             )
             .setHandleAudioBecomingNoisy(playerPreferences.pauseOnHeadsetDisconnect)
-            .setSeekBackIncrementMs(10000)
-            .setSeekForwardIncrementMs(10000)
             .build()
             .also {
                 it.addListener(playbackStateListener)
                 it.pauseAtEndOfMediaItems = !playerPreferences.autoplay
-                it.setSeekParameters(SeekParameters.PREVIOUS_SYNC)
+                it.setSeekParameters(SeekParameters.EXACT)
                 it.repeatMode = when (playerPreferences.loopMode) {
                     LoopMode.OFF -> Player.REPEAT_MODE_OFF
                     LoopMode.ONE -> Player.REPEAT_MODE_ONE
