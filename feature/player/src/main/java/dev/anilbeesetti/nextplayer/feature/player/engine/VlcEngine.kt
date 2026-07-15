@@ -50,7 +50,8 @@ class VlcEngine(private val context: Context) {
             add("--audio-time-stretch")
         }
         libVlc = LibVLC(context, options)
-        mediaPlayer = MediaPlayer(libVlc!!)
+        val lv = libVlc ?: run { Log.e(TAG, "libVlc not initialized"); return }
+        mediaPlayer = MediaPlayer(lv)
     }
 
     fun setSurface(surface: Surface?) {
@@ -74,7 +75,8 @@ class VlcEngine(private val context: Context) {
 
     fun setDataSource(uri: Uri) {
         val mp = mediaPlayer ?: return
-        val media = Media(libVlc!!, uri).apply {
+        val lv = libVlc ?: run { Log.e(TAG, "libVlc not initialized"); return }
+        val media = Media(lv, uri).apply {
             setHWDecoderEnabled(true, false)
         }
         mp.media = media
