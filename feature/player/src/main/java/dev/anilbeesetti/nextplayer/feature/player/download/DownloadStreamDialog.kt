@@ -165,8 +165,9 @@ fun DownloadStreamDialog(
                         }
                     }
                     else -> {
+                        val fmt = selectedFormat ?: return@AlertDialog
                         Text(
-                            "Ready: ${selectedFormat!!.formatId} (.${selectedFormat!!.extension})",
+                            "Ready: ${fmt.formatId} (.${fmt.extension})",
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
@@ -181,7 +182,7 @@ fun DownloadStreamDialog(
             if (selectedFormat != null && !downloadDone && downloadProgress == null) {
                 Button(
                     onClick = {
-                        val fmt = selectedFormat!!
+                        val fmt = selectedFormat ?: return@Button
                         val targetDir = File(
                             android.os.Environment.getExternalStoragePublicDirectory(
                                 android.os.Environment.DIRECTORY_MOVIES,
