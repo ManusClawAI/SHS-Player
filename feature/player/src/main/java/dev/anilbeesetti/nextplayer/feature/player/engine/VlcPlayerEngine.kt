@@ -95,9 +95,13 @@ class VlcPlayerEngine(private val context: Context) {
             add("--clock-synchro=0")
             add("--demux=mkv,mp4,avi,ts,ps,flv,webm,mov,asf,ogg")
         }
-        libVlc = LibVLC(context, options)
-        mediaPlayer = MediaPlayer(libVlc!!).also { mp ->
-            mp.setEventListener(::onVlcEvent)
+        try {
+            libVlc = LibVLC(context, options)
+            mediaPlayer = MediaPlayer(libVlc!!).also { mp ->
+                mp.setEventListener(::onVlcEvent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "libVlc not initialized", e)
         }
     }
 
