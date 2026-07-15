@@ -394,6 +394,11 @@ class VlcPlayerAdapter(
     /** Direct access to the underlying VLC engine for VLC-specific features (audio delay, equalizer, video adjust). */
     fun getVlcEngine(): VlcPlayerEngine = engine
 
+    /** Add an external subtitle track (SRT, ASS, SSA, VTT) */
+    fun addSubtitleTrack(uri: Uri) {
+        engine.addSubtitleTrack(uri)
+    }
+
     companion object {
         private const val TAG = "VlcPlayerAdapter"
     }

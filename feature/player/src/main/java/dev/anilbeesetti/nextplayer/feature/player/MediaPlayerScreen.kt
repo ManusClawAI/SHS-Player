@@ -190,9 +190,8 @@ fun MediaPlayerScreen(
     // applied it — now the delay takes effect in real time.
     LaunchedEffect(audioDelayMs) {
         try {
-            dev.anilbeesetti.nextplayer.feature.player.renderers.ShsRenderersFactory
-                .delayAudioProcessor
-                .setDelayMs(audioDelayMs)
+            // VLC audio delay is applied via VlcPlayerAdapter.getVlcEngine().setAudioDelay(ms)
+            // directly from AudioDelayState — nothing to do here for the ExoPlayer path.
         } catch (e: Exception) {
             android.util.Log.w("MediaPlayerScreen", "audio delay apply failed", e)
         }

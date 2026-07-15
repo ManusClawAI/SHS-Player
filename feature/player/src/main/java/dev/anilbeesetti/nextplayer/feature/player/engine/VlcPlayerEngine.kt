@@ -206,6 +206,21 @@ class VlcPlayerEngine(private val context: Context) {
         mediaPlayer?.play()
     }
 
+    /**
+     * Add an external subtitle file (SRT, ASS, SSA, VTT) to the current media.
+     * VLC supports adding multiple subtitle tracks via addSlave.
+     * @param uri URI of the subtitle file
+     */
+    fun addSubtitleTrack(uri: Uri) {
+        val mp = mediaPlayer ?: return
+        try {
+            // Media.SlaveType.Subtitle = 0 in libvlc-android
+            mp.addSlave(0, uri, true)
+        } catch (e: Exception) {
+            Log.e(TAG, "addSubtitleTrack failed", e)
+        }
+    }
+
     fun pause() {
         mediaPlayer?.pause()
     }

@@ -72,7 +72,7 @@ class AudioEqualizerState {
         }
     }
 
-    fun setPreAmp(value: Float) {
+    fun setPreAmpValue(value: Float) {
         preAmp = value.coerceIn(-20f, 20f)
         applyToVlc()
     }

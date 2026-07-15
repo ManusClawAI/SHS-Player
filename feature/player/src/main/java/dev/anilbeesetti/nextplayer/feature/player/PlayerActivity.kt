@@ -68,9 +68,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.anilbeesetti.nextplayer.core.common.extensions.getMediaContentUri
 import dev.anilbeesetti.nextplayer.core.ui.R as coreUiR
@@ -79,9 +76,6 @@ import dev.anilbeesetti.nextplayer.feature.player.extensions.coerce
 import dev.anilbeesetti.nextplayer.feature.player.extensions.registerForSuspendActivityResult
 import dev.anilbeesetti.nextplayer.feature.player.extensions.setExtras
 import dev.anilbeesetti.nextplayer.feature.player.extensions.uriToSubtitleConfiguration
-import dev.anilbeesetti.nextplayer.feature.player.service.PlayerService
-import dev.anilbeesetti.nextplayer.feature.player.service.addSubtitleTrack
-import dev.anilbeesetti.nextplayer.feature.player.service.stopPlayerSession
 import dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerAdapter
 import dev.anilbeesetti.nextplayer.feature.player.utils.PlayerApi
 import dev.anilbeesetti.nextplayer.feature.player.utils.ScreenshotUtil
@@ -107,12 +101,9 @@ class PlayerActivity : ComponentActivity() {
     private var playInBackground: Boolean = false
     private var isIntentNew: Boolean = true
 
-    private var controllerFuture: ListenableFuture<MediaController>? = null
-    private var mediaController: MediaController? = null
     private var vlcAdapter: VlcPlayerAdapter? = null
     private lateinit var playerApi: PlayerApi
 
-    private val playbackStateListener: Player.Listener = playbackStateListener()
 
     private val subtitleFileSuspendLauncher = registerForSuspendActivityResult(OpenDocument())
 
@@ -160,9 +151,7 @@ class PlayerActivity : ComponentActivity() {
                 if (useVlc) {
                     player = vlcAdapter
                 } else {
-                    maybeInitControllerFuture()
                     lifecycleScope.launch {
-                        player = controllerFuture?.await()
                     }
                 }
                 onStopOrDispose {
@@ -190,8 +179,6 @@ class PlayerActivity : ComponentActivity() {
                                     ),
                                 ) ?: return@launch
                                 contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                maybeInitControllerFuture()
-                                controllerFuture?.await()?.addSubtitleTrack(uri)
                             }
                         },
                         onBackClick = {
@@ -221,7 +208,7 @@ class PlayerActivity : ComponentActivity() {
 
                     if (showTrimDialog) {
                         val currentPlayer = player
-                        val currentUri = videoUri ?: (mediaController?.currentMediaItem?.localConfiguration?.uri ?: intent.data)
+                        val currentUri = videoUri ?: (vlcAdapter?.currentMediaItem?.localConfiguration?.uri ?: intent.data)
                         TrimVideoDialog(
                             videoUri = currentUri,
                             durationMs = currentPlayer?.duration?.takeIf { it > 0 } ?: 0L,
@@ -259,7 +246,7 @@ class PlayerActivity : ComponentActivity() {
         // in the background via the PlayerService notification instead.
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        if (mediaController?.isPlaying != true) return
+        if (vlcAdapter?.isPlaying != true) return
 
         // Defensive: check the system feature before doing anything else.
         // On Android Go / low-end itel devices, FEATURE_PICTURE_IN_PICTURE may
@@ -280,8 +267,8 @@ class PlayerActivity : ComponentActivity() {
 
         // O..R — explicit entry required, with hard defensive guards.
         runCatching {
-            val width = mediaController?.videoSize?.width ?: 0
-            val height = mediaController?.videoSize?.height ?: 0
+            val width = vlcAdapter?.videoSize?.width ?: 0
+            val height = vlcAdapter?.videoSize?.height ?: 0
 
             // Clamp aspect ratio to Android's required 1:2.39 .. 2.39:1 window.
             // On 32-bit itel devices, exotic video sizes (e.g. 1920x800 = 2.4:1)
@@ -311,7 +298,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun convertVideoToAudio() {
-        val videoUri = mediaController?.currentMediaItem?.localConfiguration?.uri ?: intent.data ?: run {
+        val videoUri = vlcAdapter?.currentMediaItem?.localConfiguration?.uri ?: intent.data ?: run {
             Toast.makeText(this, "No video to convert", Toast.LENGTH_SHORT).show()
             return
         }
@@ -502,17 +489,17 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun reversePlay() {
-        val duration = mediaController?.duration ?: 0L
-        val position = mediaController?.currentPosition ?: 0L
+        val duration = vlcAdapter?.duration ?: 0L
+        val position = vlcAdapter?.currentPosition ?: 0L
         if (duration > 0) {
-            mediaController?.seekTo(duration - position)
-            mediaController?.play()
+            vlcAdapter?.seekTo(duration - position)
+            vlcAdapter?.play()
             Toast.makeText(this, "Playing from end. Use 2x long-press speed for fast playback.", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun shareCurrentVideo() {
-        val videoUri = mediaController?.currentMediaItem?.localConfiguration?.uri ?: intent.data ?: return
+        val videoUri = vlcAdapter?.currentMediaItem?.localConfiguration?.uri ?: intent.data ?: return
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "video/*"
             putExtra(Intent.EXTRA_STREAM, videoUri)
@@ -575,59 +562,42 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        lifecycleScope.launch {
-            maybeInitControllerFuture()
-            mediaController = controllerFuture?.await()
-
-            mediaController?.run {
-                updateKeepScreenOnFlag()
-                addListener(playbackStateListener)
-                startPlayback()
-            }
+        vlcAdapter?.addListener(playerEventListener)
+        vlcAdapter?.run {
+            updateKeepScreenOnFlag()
+            if (currentMediaItem == null) startPlayback()
         }
     }
 
     override fun onStop() {
-        mediaController?.run {
+        vlcAdapter?.run {
             viewModel.playWhenReady = playWhenReady
-            removeListener(playbackStateListener)
+            removeListener(playerEventListener)
         }
         val shouldPlayInBackground = playInBackground || playerPreferences?.autoBackgroundPlay == true
         if (subtitleFileSuspendLauncher.isAwaitingResult || !shouldPlayInBackground) {
-            mediaController?.pause()
+            vlcAdapter?.pause()
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode) {
             finish()
             if (!shouldPlayInBackground) {
-                mediaController?.stopPlayerSession()
+                vlcAdapter?.release(); vlcAdapter = null
             }
         }
-
-        controllerFuture?.run {
-            MediaController.releaseFuture(this)
-            controllerFuture = null
-        }
         super.onStop()
-    }
-
-    private fun maybeInitControllerFuture() {
-        if (controllerFuture == null) {
-            val sessionToken = SessionToken(applicationContext, ComponentName(applicationContext, PlayerService::class.java))
-            controllerFuture = MediaController.Builder(applicationContext, sessionToken).buildAsync()
-        }
     }
 
     private fun startPlayback() {
         val uri = intent.data ?: return
         viewModel.setCurrentVideoUri(uri.toString())
 
-        val returningFromBackground = !isIntentNew && mediaController?.currentMediaItem != null
-        val isNewUriTheCurrentMediaItem = mediaController?.currentMediaItem?.localConfiguration?.uri.toString() == uri.toString()
+        val returningFromBackground = !isIntentNew && vlcAdapter?.currentMediaItem != null
+        val isNewUriTheCurrentMediaItem = vlcAdapter?.currentMediaItem?.localConfiguration?.uri.toString() == uri.toString()
 
         if (returningFromBackground || isNewUriTheCurrentMediaItem) {
-            mediaController?.prepare()
-            mediaController?.playWhenReady = viewModel.playWhenReady
+            vlcAdapter?.prepare()
+            vlcAdapter?.playWhenReady = viewModel.playWhenReady
             return
         }
 
@@ -713,9 +683,9 @@ class PlayerActivity : ComponentActivity() {
         }
 
         withContext(Dispatchers.Main) {
-            mediaController?.run {
+            vlcAdapter?.run {
                 setMediaItems(
-                    mediaItems,
+                    mediaItems.toMutableList(),
                     mediaItemIndexToPlay,
                     playerApi.position?.toLong() ?: intentPositionMs ?: C.TIME_UNSET,
                 )
@@ -725,32 +695,22 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    private fun playbackStateListener() = object : Player.Listener {
+    private val playerEventListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            super.onMediaItemTransition(mediaItem, reason)
             intent.data = mediaItem?.localConfiguration?.uri
         }
-
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            super.onIsPlayingChanged(isPlaying)
             updateKeepScreenOnFlag()
         }
-
         override fun onPlaybackStateChanged(playbackState: Int) {
-            super.onPlaybackStateChanged(playbackState)
-            when (playbackState) {
-                Player.STATE_ENDED -> {
-                    isPlaybackFinished = mediaController?.playbackState == Player.STATE_ENDED
-                    finishAndStopPlayerSession()
-                }
-                else -> {}
+            if (playbackState == Player.STATE_ENDED) {
+                isPlaybackFinished = true
+                finishAndStopPlayerSession()
             }
         }
-
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            super.onPlayWhenReadyChanged(playWhenReady, reason)
             if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) {
-                if (mediaController?.repeatMode != Player.REPEAT_MODE_OFF) return
+                if (vlcAdapter?.repeatMode != Player.REPEAT_MODE_OFF) return
                 isPlaybackFinished = true
                 finishAndStopPlayerSession()
             }
@@ -761,8 +721,8 @@ class PlayerActivity : ComponentActivity() {
         if (::playerApi.isInitialized && playerApi.shouldReturnResult) {
             val result = playerApi.getResult(
                 isPlaybackFinished = isPlaybackFinished,
-                duration = mediaController?.duration ?: C.TIME_UNSET,
-                position = mediaController?.currentPosition ?: C.TIME_UNSET,
+                duration = vlcAdapter?.duration ?: C.TIME_UNSET,
+                position = vlcAdapter?.currentPosition ?: C.TIME_UNSET,
             )
             setResult(RESULT_OK, result)
         }
@@ -779,7 +739,7 @@ class PlayerActivity : ComponentActivity() {
         if (intent.data != null) {
             setIntent(intent)
             isIntentNew = true
-            if (mediaController != null) {
+            if (vlcAdapter != null) {
                 startPlayback()
             }
         }
@@ -825,7 +785,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun updateKeepScreenOnFlag() {
-        if (mediaController?.isPlaying == true) {
+        if (vlcAdapter?.isPlaying == true) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -834,7 +794,7 @@ class PlayerActivity : ComponentActivity() {
 
     private fun finishAndStopPlayerSession() {
         finish()
-        mediaController?.stopPlayerSession()
+        vlcAdapter?.release(); vlcAdapter = null
     }
 
     override fun onDestroy() {

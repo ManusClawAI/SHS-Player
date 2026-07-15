@@ -17,13 +17,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.anilbeesetti.nextplayer.core.ui.theme.NextPlayerTheme
-import dev.anilbeesetti.nextplayer.feature.player.service.PlayerService
-import dev.anilbeesetti.nextplayer.feature.player.service.stopPlayerSession
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 
@@ -51,6 +46,8 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class AudioPlayerActivity : ComponentActivity() {
 
+    private var vlcAdapter: dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerAdapter? = null
+
     companion object {
         private const val TAG = "AudioPlayerActivity"
         const val EXTRA_TITLE = "title"
@@ -59,7 +56,6 @@ class AudioPlayerActivity : ComponentActivity() {
         const val EXTRA_QUEUE_INDEX = "audio_queue_index"
     }
 
-    private var controllerFuture: ListenableFuture<MediaController>? = null
 
     /**
      * MediaController wrapped in mutableStateOf so that Compose UI recomposes
@@ -67,8 +63,7 @@ class AudioPlayerActivity : ComponentActivity() {
      * AudioPlayerScreen stays stuck on "Connecting to player..." even after
      * the background service starts playback.
      */
-    private val mediaControllerState = androidx.compose.runtime.mutableStateOf<MediaController?>(null)
-    private val mediaController: MediaController? get() = mediaControllerState.value
+    
 
     /**
      * Tracks whether the MediaController is currently bound to the PlayerService.
@@ -102,7 +97,7 @@ class AudioPlayerActivity : ComponentActivity() {
             NextPlayerTheme(darkTheme = true) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     AudioPlayerScreen(
-                        player = mediaController,
+                        player = vlcAdapter,
                         title = title,
                         artist = artist,
                         uri = uri,
@@ -147,7 +142,7 @@ class AudioPlayerActivity : ComponentActivity() {
         // Stop the current playback first, then re-bind with the new queue.
         lifecycleScope.launch {
             try {
-                mediaController?.let { old ->
+                vlcAdapter?.let { old ->
                     runCatching {
                         old.stop()
                         old.clearMediaItems()
@@ -177,39 +172,21 @@ class AudioPlayerActivity : ComponentActivity() {
     ) {
         lifecycleScope.launch {
             try {
-                // 1. If a previous controller is still bound, stop it first.
-                mediaController?.let { old ->
-                    runCatching {
-                        old.stopPlayerSession()
-                        old.stop()
-                        old.clearMediaItems()
-                    }
-                }
-
-                // 2. Build a new controller using applicationContext (not activity context).
-                val token = SessionToken(
-                    applicationContext,
-                    ComponentName(applicationContext, PlayerService::class.java),
-                )
-                controllerFuture = MediaController.Builder(applicationContext, token).buildAsync()
-                val controller = controllerFuture?.await()
-                if (controller == null) {
-                    finish()
-                    return@launch
-                }
-                mediaControllerState.value = controller
+                // Release any previous adapter
+                vlcAdapter?.release()
+                vlcAdapter = dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerAdapter(applicationContext)
                 isBound = true
 
-                Log.d(TAG, "MediaController bound successfully, isBound=true")
+                Log.d(TAG, "VlcPlayerAdapter created for audio, isBound=true")
 
                 startPlaybackOnController(uri, title, artist, queue, startIndex)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to bind MediaController", e)
+                Log.e(TAG, "Failed to create VlcPlayerAdapter", e)
                 isBound = false
                 runOnUiThread {
                     Toast.makeText(
                         this@AudioPlayerActivity,
-                        "Could not connect to audio service: ${e.message}",
+                        "Could not init audio player: ${e.message}",
                         Toast.LENGTH_LONG,
                     ).show()
                     finish()
@@ -229,8 +206,8 @@ class AudioPlayerActivity : ComponentActivity() {
         queue: ArrayList<Uri>,
         startIndex: Int,
     ) {
-        val controller = mediaController ?: run {
-            Log.w(TAG, "startPlaybackOnController: controller is null")
+        val controller = vlcAdapter ?: run {
+            Log.w(TAG, "startPlaybackOnController: vlcAdapter is null")
             return
         }
         try {
@@ -259,7 +236,7 @@ class AudioPlayerActivity : ComponentActivity() {
                 controller.clearMediaItems()
             }
 
-            controller.setMediaItems(mediaItems, startIndex, 0L)
+            controller.setMediaItems(mediaItems.toMutableList(), startIndex, 0L)
             controller.playWhenReady = true
             controller.prepare()
             controller.play()
@@ -278,7 +255,7 @@ class AudioPlayerActivity : ComponentActivity() {
             return
         }
         try {
-            mediaController?.let { controller ->
+            vlcAdapter?.let { controller ->
                 try {
                     runCatching { if (controller.isPlaying) controller.pause() }
                     controller.release()
@@ -292,15 +269,8 @@ class AudioPlayerActivity : ComponentActivity() {
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "Service not registered during release", e)
         } finally {
-            mediaControllerState.value = null
+            vlcAdapter = null
             isBound = false
-        }
-        try {
-            controllerFuture?.cancel(true)
-        } catch (e: Exception) {
-            Log.w(TAG, "Exception during future cancel", e)
-        } finally {
-            controllerFuture = null
         }
     }
 
@@ -311,12 +281,12 @@ class AudioPlayerActivity : ComponentActivity() {
     override fun onStop() {
         if (isFinishing) {
             // v0.16.2 — back-press stops audio entirely.
-            mediaController?.let { controller ->
+            vlcAdapter?.let { controller ->
                 runCatching {
                     controller.pause()
                     controller.stop()
                     controller.clearMediaItems()
-                    controller.stopPlayerSession()
+                    controller.release()
                 }
             }
             safelyReleaseController()
