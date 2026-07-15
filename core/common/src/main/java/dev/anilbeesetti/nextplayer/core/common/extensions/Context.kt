@@ -13,6 +13,7 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -57,7 +58,14 @@ fun Context.getPath(uri: Uri): String? {
                     return Environment.getExternalStorageDirectory().path + "/" + split[1]
                 }
 
-                // TODO handle non-primary volumes
+                // Handle non-primary volumes (SD card, OEM split storage)
+                val storageManager = getSystemService(Context.STORAGE_SERVICE) as StorageManager
+                for (volume in storageManager.storageVolumes) {
+                    if (volume.uuid.equals(type, ignoreCase = true)) {
+                        val volumeRoot = volume.directory?.path ?: continue
+                        return "$volumeRoot/${split.getOrNull(1) ?: ""}"
+                    }
+                }
             }
 
             uri.isDownloadsDocument -> {
