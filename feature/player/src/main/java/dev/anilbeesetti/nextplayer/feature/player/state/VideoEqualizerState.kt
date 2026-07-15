@@ -12,7 +12,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerAdapter
 
 /**
  * Video equalizer state — brightness, contrast, saturation.
@@ -34,7 +34,7 @@ import androidx.media3.exoplayer.ExoPlayer
 @Composable
 fun rememberVideoEqualizerState(player: Player?, activity: Activity?): VideoEqualizerState {
     val state = remember { VideoEqualizerState() }
-    LaunchedEffect(player) { state.bindPlayer(player as? ExoPlayer) }
+    LaunchedEffect(player) { state.bindPlayer(player as? VlcPlayerAdapter) }
     LaunchedEffect(activity) { state.bindActivity(activity) }
     DisposableEffect(Unit) { onDispose { state.unbindAll() } }
     return state
@@ -55,11 +55,11 @@ class VideoEqualizerState {
     val contrastMultiplier: Float get() = _mpvToMultiplier(contrastMpv)
     val saturationMultiplier: Float get() = _mpvToMultiplier(saturationMpv)
 
-    private var exoPlayer: ExoPlayer? = null
+    private var vlcAdapter: VlcPlayerAdapter? = null
     private var activity: Activity? = null
 
-    fun bindPlayer(player: ExoPlayer?) {
-        exoPlayer = player
+    fun bindPlayer(player: VlcPlayerAdapter?) {
+        vlcAdapter = player
     }
 
     fun bindActivity(a: Activity?) {
@@ -68,7 +68,7 @@ class VideoEqualizerState {
     }
 
     fun unbindAll() {
-        exoPlayer = null
+        vlcAdapter = null
         activity = null
     }
 

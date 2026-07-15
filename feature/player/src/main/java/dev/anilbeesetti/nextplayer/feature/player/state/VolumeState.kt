@@ -22,9 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat.getSystemService
 import androidx.media3.common.Player
-import androidx.media3.common.listen
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.session.MediaController
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -59,20 +57,11 @@ fun rememberVolumeState(
     DisposableEffect(context, volumeBoostEnabled) { volumeState.handleLifecycle(this) }
 
     LaunchedEffect(player, volumeBoostEnabled) {
-        if (volumeBoostEnabled && player is MediaController) {
-            val initialAudioSessionId = player.getAudioSessionId()
-            if (initialAudioSessionId != 0) {
-                volumeState.setAudioSessionId(initialAudioSessionId)
-            }
-
-            player.listen { events ->
-                if (events.contains(Player.EVENT_AUDIO_SESSION_ID)) {
-                    val newAudioSessionId = player.getAudioSessionId()
-                    if (newAudioSessionId != 0) {
-                        volumeState.setAudioSessionId(newAudioSessionId)
-                    }
-                }
-            }
+        // VLC manages its own audio session — volume boost via LoudnessEnhancer
+        // is not applicable. Volume control is via Player.setVolume (VLC adapter).
+        if (volumeBoostEnabled && player is Player) {
+            // No-op: VLC audio session is internal; volume boost requires an AudioFx
+            // sessionId which VLC does not expose. Volume still works via Player.setVolume.
         }
     }
     return volumeState
