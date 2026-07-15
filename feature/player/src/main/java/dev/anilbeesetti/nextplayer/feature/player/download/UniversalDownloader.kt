@@ -71,7 +71,15 @@ class UniversalDownloader(private val context: Context) {
                 // fallback: yausername/youtubedl-android entry point
                 ?: Class.forName("com.github.yausername.youtubedl_android.YoutubeDL")
             val instance = dlClass.getMethod("getInstance").invoke(null)
-            val info = instance!!::class.java.getMethod("getInfo", String::class.java).invoke(instance, url)
+            val info = try {
+                instance!!::class.java.getMethod("getInfo", String::class.java).invoke(instance, url)
+            } catch (e: NoSuchMethodException) {
+                Log.e(TAG, "getInfo method not found — upstream library changed?", e)
+                return@withContext null
+            } catch (e: Exception) {
+                Log.e(TAG, "getInfo reflection failed", e)
+                return@withContext null
+            }
 
             // Map reflection result to our data class
             @Suppress("UNCHECKED_CAST")
@@ -126,8 +134,16 @@ class UniversalDownloader(private val context: Context) {
                     .invoke(request, "-o", targetFile.absolutePath)
 
                 // Set up progress callback via YoutubeDLResponse
-                val response = instance!!::class.java.getMethod("execute", requestClass)
-                    .invoke(instance, request)
+                val response = try {
+                    instance!!::class.java.getMethod("execute", requestClass)
+                        .invoke(instance, request)
+                } catch (e: NoSuchMethodException) {
+                    Log.e(TAG, "execute method not found — upstream library changed?", e)
+                    return@withContext false
+                } catch (e: Exception) {
+                    Log.e(TAG, "execute reflection failed", e)
+                    return@withContext false
+                }
                 val exitCode = response?.javaClass?.getMethod("getExitCode")?.invoke(response) as? Int ?: 0
                 exitCode == 0
             }.getOrElse { false }
