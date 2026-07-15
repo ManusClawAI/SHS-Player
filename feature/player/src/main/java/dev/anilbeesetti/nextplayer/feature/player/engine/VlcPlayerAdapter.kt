@@ -7,11 +7,14 @@ import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.TextureView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
@@ -41,10 +44,10 @@ class VlcPlayerAdapter(
 
     private val engine = VlcPlayerEngine(context).also { it.init() }
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val listeners = CopyOnWriteArrayList<Listener>()
+    private val listeners = CopyOnWriteArrayList<Player.Listener>()
 
     @Volatile private var playWhenReady = false
-    @Volatile private var playbackState = STATE_IDLE
+    @Volatile private var playbackState = Player.STATE_IDLE
     @Volatile private var currentMediaItem: MediaItem? = null
     @Volatile private var mediaItemCount = 0
     @Volatile private var volume = 1f
@@ -56,44 +59,44 @@ class VlcPlayerAdapter(
         override fun onPlaying() {
             mainHandler.post {
                 playWhenReady = true
-                setPlaybackState(STATE_READY)
-                notifyListeners { it.onPlaybackStateChanged(STATE_READY); it.onIsPlayingChanged(true); it.onPlayWhenReadyChanged(true, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) }
+                setPlaybackState(Player.STATE_READY)
+                notifyListeners { it.onPlaybackStateChanged(Player.STATE_READY); it.onIsPlayingChanged(true); it.onPlayWhenReadyChanged(true, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) }
             }
         }
         override fun onPaused() {
             mainHandler.post {
                 playWhenReady = false
-                setPlaybackState(STATE_READY)
-                notifyListeners { it.onPlaybackStateChanged(STATE_READY); it.onIsPlayingChanged(false); it.onPlayWhenReadyChanged(false, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) }
+                setPlaybackState(Player.STATE_READY)
+                notifyListeners { it.onPlaybackStateChanged(Player.STATE_READY); it.onIsPlayingChanged(false); it.onPlayWhenReadyChanged(false, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) }
             }
         }
         override fun onStopped() {
             mainHandler.post {
-                setPlaybackState(STATE_IDLE)
-                notifyListeners { it.onPlaybackStateChanged(STATE_IDLE); it.onIsPlayingChanged(false) }
+                setPlaybackState(Player.STATE_IDLE)
+                notifyListeners { it.onPlaybackStateChanged(Player.STATE_IDLE); it.onIsPlayingChanged(false) }
             }
         }
         override fun onEndReached() {
             mainHandler.post {
-                setPlaybackState(STATE_ENDED)
-                notifyListeners { it.onPlaybackStateChanged(STATE_ENDED); it.onIsPlayingChanged(false) }
+                setPlaybackState(Player.STATE_ENDED)
+                notifyListeners { it.onPlaybackStateChanged(Player.STATE_ENDED); it.onIsPlayingChanged(false) }
             }
         }
         override fun onError(message: String?) {
             mainHandler.post {
                 playerError = PlaybackException(message ?: "VLC playback error", null, PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
-                setPlaybackState(STATE_IDLE)
+                setPlaybackState(Player.STATE_IDLE)
                 notifyListeners { it.onPlayerErrorChanged(playerError) }
             }
         }
         override fun onBuffering(percent: Float) {
             mainHandler.post {
-                if (percent in 1f..99f && playbackState != STATE_BUFFERING) {
-                    setPlaybackState(STATE_BUFFERING)
-                    notifyListeners { it.onPlaybackStateChanged(STATE_BUFFERING) }
-                } else if (percent >= 100f && playbackState == STATE_BUFFERING) {
-                    setPlaybackState(STATE_READY)
-                    notifyListeners { it.onPlaybackStateChanged(STATE_READY) }
+                if (percent in 1f..99f && playbackState != Player.STATE_BUFFERING) {
+                    setPlaybackState(Player.STATE_BUFFERING)
+                    notifyListeners { it.onPlaybackStateChanged(Player.STATE_BUFFERING) }
+                } else if (percent >= 100f && playbackState == Player.STATE_BUFFERING) {
+                    setPlaybackState(Player.STATE_READY)
+                    notifyListeners { it.onPlaybackStateChanged(Player.STATE_READY) }
                 }
             }
         }
@@ -102,7 +105,7 @@ class VlcPlayerAdapter(
         }
         override fun onLengthChanged(lengthMs: Long) {
             mainHandler.post {
-                notifyListeners { it.onMediaItemTransition(0, MEDIA_ITEM_TRANSITION_REASON_REPEAT) }
+                notifyListeners { it.onMediaItemTransition(currentMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) }
             }
         }
         override fun onSeekableChanged(seekable: Boolean) {
@@ -118,7 +121,7 @@ class VlcPlayerAdapter(
         playbackState = state
     }
 
-    private fun notifyListeners(block: (Listener) -> Unit) {
+    private fun notifyListeners(block: (Player.Listener) -> Unit) {
         listeners.forEach(block)
     }
 
@@ -142,51 +145,120 @@ class VlcPlayerAdapter(
     }
     override fun prepare() {
         // VLC doesn't have a prepare step — setDataSource + play is enough
-        setPlaybackState(STATE_BUFFERING)
-        notifyListeners { it.onPlaybackStateChanged(STATE_BUFFERING) }
+        setPlaybackState(Player.STATE_BUFFERING)
+        notifyListeners { it.onPlaybackStateChanged(Player.STATE_BUFFERING) }
     }
 
     // ── Media items ─────────────────────────────────────────────────────
     override fun setMediaItem(mediaItem: MediaItem) {
-        setMediaItems(listOf(mediaItem))
+        setMediaItems(mutableListOf(mediaItem))
+    }
+    override fun setMediaItem(mediaItem: MediaItem, startPositionMs: Long) {
+        setMediaItem(mediaItem)
+        if (startPositionMs > 0) seekTo(startPositionMs)
+    }
+    override fun setMediaItem(mediaItem: MediaItem, resetPosition: Boolean) {
+        setMediaItem(mediaItem)
     }
     override fun setMediaItems(mediaItems: MutableList<MediaItem>) {
         if (mediaItems.isEmpty()) return
         currentMediaItem = mediaItems[0]
         mediaItemCount = mediaItems.size
-        val uri = mediaItems[0].localConfiguration?.uri ?: mediaItems[0].uri ?: return
+        val uri = mediaItems[0].localConfiguration?.uri ?: return
         engine.setDataSource(uri)
         mainHandler.post {
             notifyListeners {
-                it.onTimelineChanged(Timeline.EMPTY, TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
-                it.onMediaItemTransition(0, MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
+                it.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+                it.onMediaItemTransition(currentMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
             }
         }
     }
     override fun setMediaItems(mediaItems: MutableList<MediaItem>, startIndex: Int, startPositionMs: Long) {
         setMediaItems(mediaItems)
     }
+    override fun setMediaItems(mediaItems: MutableList<MediaItem>, resetPosition: Boolean) {
+        setMediaItems(mediaItems)
+    }
     override fun addMediaItem(mediaItem: MediaItem) {
         // Single-item only for now — replace current
+        setMediaItem(mediaItem)
+    }
+    override fun addMediaItem(index: Int, mediaItem: MediaItem) {
         setMediaItem(mediaItem)
     }
     override fun addMediaItems(mediaItems: MutableList<MediaItem>) {
         if (mediaItems.isNotEmpty()) setMediaItem(mediaItems[0])
     }
+    override fun addMediaItems(index: Int, mediaItems: MutableList<MediaItem>) {
+        if (mediaItems.isNotEmpty()) setMediaItem(mediaItems[0])
+    }
     override fun removeMediaItem(index: Int) { /* no-op */ }
+    override fun removeMediaItems(fromIndex: Int, toIndex: Int) { /* no-op */ }
     override fun clearMediaItems() {
         currentMediaItem = null
         mediaItemCount = 0
         engine.stop()
     }
     override fun moveMediaItem(currentIndex: Int, newIndex: Int) { /* no-op */ }
+    override fun moveMediaItems(fromIndex: Int, toIndex: Int, newFromIndex: Int) { /* no-op */ }
     override fun replaceMediaItem(index: Int, mediaItem: MediaItem) {
         if (index == 0) setMediaItem(mediaItem)
+    }
+    override fun replaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: MutableList<MediaItem>) {
+        if (mediaItems.isNotEmpty() && fromIndex == 0) setMediaItem(mediaItems[0])
+    }
+    override fun seekToDefaultPosition() {
+        seekTo(0L)
+    }
+    override fun seekToDefaultPosition(windowIndex: Int) {
+        seekTo(0L)
+    }
+    override fun canAdvertiseSession(): Boolean = false
+    override fun getSeekBackIncrement(): Long = 10_000L
+    override fun getSeekForwardIncrement(): Long = 10_000L
+    override fun getMaxSeekToPreviousPosition(): Long = 0L
+    override fun getNextMediaItemIndex(): Int = C.INDEX_UNSET
+    override fun getPreviousMediaItemIndex(): Int = C.INDEX_UNSET
+    override fun getBufferedPercentage(): Int = if (engine.duration > 0) ((engine.position * 100) / engine.duration).toInt() else 0
+    override fun getContentPosition(): Long = engine.position
+    override fun getContentBufferedPosition(): Long = engine.position
+    override fun getContentDuration(): Long = engine.duration
+    override fun getCurrentManifest(): Any? = null
+    override fun getCurrentAdGroupIndex(): Int = C.INDEX_UNSET
+    override fun getCurrentAdIndexInAdGroup(): Int = C.INDEX_UNSET
+    override fun getCurrentLiveOffset(): Long = C.TIME_UNSET
+    override fun isCurrentWindowLive(): Boolean = false
+    override fun isCurrentWindowDynamic(): Boolean = false
+    override fun isCurrentWindowSeekable(): Boolean = true
+    override fun isPlayingAd(): Boolean = false
+
+    // ── Device volume (no-op — VLC uses its own audio output) ───────────
+    override fun getDeviceVolume(): Int = 0
+    override fun setDeviceVolume(volume: Int) { /* no-op */ }
+    override fun setDeviceVolume(volume: Int, flags: Int) { /* no-op */ }
+    override fun increaseDeviceVolume() { /* no-op */ }
+    override fun increaseDeviceVolume(flags: Int) { /* no-op */ }
+    override fun decreaseDeviceVolume() { /* no-op */ }
+    override fun decreaseDeviceVolume(flags: Int) { /* no-op */ }
+    override fun isDeviceMuted(): Boolean = false
+    override fun setDeviceMuted(muted: Boolean) { /* no-op */ }
+    override fun setDeviceMuted(muted: Boolean, flags: Int) { /* no-op */ }
+    override fun mute() { /* no-op */ }
+    override fun unmute() { /* no-op */ }
+    override fun getAudioAttributes(): AudioAttributes = AudioAttributes.DEFAULT
+    override fun getDeviceInfo(): DeviceInfo = DeviceInfo.UNKNOWN
+
+    // ── SurfaceView (delegate to setVideoSurface) ───────────────────────
+    override fun setVideoSurfaceView(surfaceView: SurfaceView?) {
+        engine.setSurface(surfaceView?.holder?.surface)
+    }
+    override fun clearVideoSurfaceView(surfaceView: SurfaceView?) {
+        clearVideoSurface()
     }
     override fun seekTo(positionMs: Long) {
         engine.seekTo(positionMs)
         mainHandler.post {
-            notifyListeners { it.onPositionDiscontinuity(DISCONTINUITY_REASON_SEEK) }
+            notifyListeners { it.onPositionDiscontinuity(Player.DISCONTINUITY_REASON_SEEK) }
         }
     }
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
@@ -212,7 +284,7 @@ class VlcPlayerAdapter(
     override fun isCurrentMediaItemLive(): Boolean = false
     override fun isCurrentMediaItemDynamic(): Boolean = false
     override fun getMediaMetadata(): MediaMetadata = currentMediaItem?.mediaMetadata ?: MediaMetadata.EMPTY
-    override fun setMediaMetadata(mediaMetadata: MediaMetadata) { /* stored on MediaItem */ }
+    // setMediaMetadata is not on the Player interface in this Media3 version — stored on MediaItem via setMediaItem
     override fun getPlaylistMetadata(): MediaMetadata = MediaMetadata.EMPTY
     override fun setPlaylistMetadata(playlistMetadata: MediaMetadata) { /* no-op */ }
 
@@ -230,10 +302,9 @@ class VlcPlayerAdapter(
         if (playWhenReady) play() else pause()
     }
     override fun isPlaying(): Boolean = engine.isPlaying
-    override fun isLoading(): Boolean = playbackState == STATE_BUFFERING
+    override fun isLoading(): Boolean = playbackState == Player.STATE_BUFFERING
     override fun getPlayerError(): PlaybackException? = playerError
-    override fun getPlaybackSuppressionReason(): Int = PLAYBACK_SUPPRESSION_REASON_NONE
-    override fun setHandleAudioBecomingNoisy(handleAudioBecomingNoisy: Boolean) { /* no-op */ }
+    override fun getPlaybackSuppressionReason(): Int = Player.PLAYBACK_SUPPRESSION_REASON_NONE
 
     // ── Playback parameters ─────────────────────────────────────────────
     override fun getPlaybackParameters(): PlaybackParameters = playbackParameters
@@ -255,8 +326,6 @@ class VlcPlayerAdapter(
     }
     override fun getAudioSessionId(): Int = C.AUDIO_SESSION_ID_UNSET
     override fun setAudioAttributes(audioAttributes: AudioAttributes, handleAudioFocus: Boolean) { /* no-op */ }
-    override fun setSkipSilenceEnabled(skipSilenceEnabled: Boolean) { /* no-op */ }
-    override fun getSkipSilenceEnabled(): Boolean = false
 
     // ── Video ───────────────────────────────────────────────────────────
     override fun getVideoSize(): VideoSize = videoSize
@@ -283,26 +352,18 @@ class VlcPlayerAdapter(
     override fun getTrackSelectionParameters(): TrackSelectionParameters = TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT
     override fun setTrackSelectionParameters(parameters: TrackSelectionParameters) { /* VLC has own track selection */ }
     override fun getCurrentCues(): CueGroup = CueGroup(emptyList(), 0L)
-    override fun setMediaItems(mediaItems: MutableList<MediaItem>, startIndex: Int) {
-        setMediaItems(mediaItems)
-    }
 
     // ── Repeat / Shuffle ────────────────────────────────────────────────
-    override fun getRepeatMode(): Int = REPEAT_MODE_OFF
+    override fun getRepeatMode(): Int = Player.REPEAT_MODE_OFF
     override fun setRepeatMode(repeatMode: Int) { /* no-op */ }
     override fun getShuffleModeEnabled(): Boolean = false
     override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) { /* no-op */ }
 
-    // ── Seek parameters ─────────────────────────────────────────────────
-    override fun setSeekParameters(seekParameters: androidx.media3.exoplayer.SeekParameters?) {
-        // VLC has sample-accurate seeking by default
-    }
-
     // ── Listeners ───────────────────────────────────────────────────────
-    override fun addListener(listener: Listener) {
+    override fun addListener(listener: Player.Listener) {
         listeners.add(listener)
     }
-    override fun removeListener(listener: Listener) {
+    override fun removeListener(listener: Player.Listener) {
         listeners.remove(listener)
     }
 
@@ -311,29 +372,23 @@ class VlcPlayerAdapter(
     override fun getAvailableCommands(): Player.Commands {
         return Player.Commands.Builder()
             .addAll(
-                COMMAND_PLAY_PAUSE,
-                COMMAND_PREPARE,
-                COMMAND_STOP,
-                COMMAND_SEEK_TO_DEFAULT,
-                COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
-                COMMAND_SEEK_TO_PREVIOUS,
-                COMMAND_SEEK_TO_NEXT,
-                COMMAND_SET_SPEED_AND_PITCH,
-                COMMAND_SET_VOLUME,
-                COMMAND_GET_CURRENT_MEDIA_ITEM,
-                COMMAND_GET_TIMELINE,
-                COMMAND_GET_METADATA,
-                COMMAND_SET_VIDEO_SURFACE,
-                COMMAND_CHANGE_MEDIA_ITEMS,
+                Player.COMMAND_PLAY_PAUSE,
+                Player.COMMAND_PREPARE,
+                Player.COMMAND_STOP,
+                Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SET_SPEED_AND_PITCH,
+                Player.COMMAND_SET_VOLUME,
+                Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+                Player.COMMAND_GET_TIMELINE,
+                Player.COMMAND_GET_METADATA,
+                Player.COMMAND_SET_VIDEO_SURFACE,
+                Player.COMMAND_CHANGE_MEDIA_ITEMS,
             )
             .build()
     }
     override fun isCommandAvailable(command: Int): Boolean = getAvailableCommands().contains(command)
-
-    // ExoPlayer-internal methods that throw (we don't support them)
-    override fun getMediaClock(): androidx.media3.common.util.Clock {
-        throw IllegalStateException("VlcPlayerAdapter does not support getMediaClock")
-    }
 
     // ── Public VLC-specific API (for advanced features) ────────────────
     /** Direct access to the underlying VLC engine for VLC-specific features (audio delay, equalizer, video adjust). */
