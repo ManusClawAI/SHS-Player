@@ -117,6 +117,35 @@ class PlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // ── Phase 7: LibVLC primary engine ────────────────────────────────────────
+        // Forward all video intents to VlcPlayerActivity (LibVLC-powered).
+        // LibVLC provides: sample-accurate seeking, native audio delay (μs), embedded
+        // subtitle rendering, hardware + software codec auto-fallback.
+        // ACTION_SEND + EXTRA_TEXT (URL share from browser/messenger) also resolved.
+        val _vlcUri: android.net.Uri? = intent.data
+            ?: intent.getStringExtra(android.content.Intent.EXTRA_TEXT)?.trim()
+                ?.split(Regex("\\s+"))
+                ?.firstOrNull { t ->
+                    t.startsWith("http", ignoreCase = true) ||
+                        t.startsWith("rtsp", ignoreCase = true) ||
+                        t.startsWith("rtmp", ignoreCase = true)
+                }?.let { android.net.Uri.parse(it) }
+        if (_vlcUri != null) {
+            startActivity(
+                android.content.Intent(
+                    this,
+                    dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerActivity::class.java,
+                ).apply {
+                    action = android.content.Intent.ACTION_VIEW
+                    data = _vlcUri
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                },
+            )
+            overridePendingTransition(0, 0)
+            finish()
+            return
+        }
+        // ─────────────────────────────────────────────────────────────────────────
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),

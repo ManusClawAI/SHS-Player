@@ -67,6 +67,9 @@ dependencies {
     implementation(libs.androidx.media3.ui.compose)
     implementation(libs.androidx.media3.session)
 
+    // LibVLC — used as alternative engine for problematic codecs & audio equalizer
+    implementation(libs.libvlc.android)
+
     // Phase 4 — Universal downloader (yt-dlp wrapper).
     // The youtubedl-android library is intentionally NOT declared as a hard
     // dependency here — its native lib (~20 MB ffmpeg) bloats the APK and the
