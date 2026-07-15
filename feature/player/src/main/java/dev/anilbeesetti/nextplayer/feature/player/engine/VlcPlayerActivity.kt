@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.WindowManager
@@ -99,6 +100,10 @@ class VlcPlayerActivity : AppCompatActivity() {
     private var videoTitle: String = ""
     private var hasStartedPlayback = false
 
+    companion object {
+        private const val TAG = "VlcPlayerActivity"
+    }
+
     // Mutable state observed by Compose
     private val isPlayingState  = mutableStateOf(false)
     private val positionMs      = mutableLongStateOf(0L)
@@ -136,8 +141,13 @@ class VlcPlayerActivity : AppCompatActivity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        uri = intent.data
-        videoTitle = uri?.lastPathSegment?.let { seg ->
+        val uri = intent.data ?: run {
+            Log.e(TAG, "onCreate: intent.data is null, finishing")
+            finish()
+            return
+        }
+        this.uri = uri
+        videoTitle = uri.lastPathSegment?.let { seg ->
             runCatching { java.net.URLDecoder.decode(seg, "UTF-8") }.getOrElse { seg }
                 .substringBeforeLast(".")
         } ?: ""
