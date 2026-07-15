@@ -598,9 +598,10 @@ fun AudioPlayerScreen(
                         .clip(CircleShape),
                 )
 
-                if (albumArt != null) {
+                val art = albumArt
+                if (art != null) {
                     Image(
-                        bitmap = albumArt!!.asImageBitmap(),
+                        bitmap = art.asImageBitmap(),
                         contentDescription = "Album Art",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
