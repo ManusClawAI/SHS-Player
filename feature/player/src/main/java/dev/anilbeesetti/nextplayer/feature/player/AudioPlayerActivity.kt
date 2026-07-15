@@ -192,7 +192,7 @@ class AudioPlayerActivity : ComponentActivity() {
                     ComponentName(applicationContext, PlayerService::class.java),
                 )
                 controllerFuture = MediaController.Builder(applicationContext, token).buildAsync()
-                val controller = controllerFuture!!.await()
+                val controller = controllerFuture?.await() ?: run { finish(); return }
                 mediaControllerState.value = controller
                 isBound = true
 
