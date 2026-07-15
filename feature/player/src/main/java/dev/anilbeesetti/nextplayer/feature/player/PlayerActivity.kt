@@ -82,6 +82,7 @@ import dev.anilbeesetti.nextplayer.feature.player.extensions.uriToSubtitleConfig
 import dev.anilbeesetti.nextplayer.feature.player.service.PlayerService
 import dev.anilbeesetti.nextplayer.feature.player.service.addSubtitleTrack
 import dev.anilbeesetti.nextplayer.feature.player.service.stopPlayerSession
+import dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerAdapter
 import dev.anilbeesetti.nextplayer.feature.player.utils.PlayerApi
 import dev.anilbeesetti.nextplayer.feature.player.utils.ScreenshotUtil
 import java.io.File
@@ -108,6 +109,7 @@ class PlayerActivity : ComponentActivity() {
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
+    private var vlcAdapter: VlcPlayerAdapter? = null
     private lateinit var playerApi: PlayerApi
 
     private val playbackStateListener: Player.Listener = playbackStateListener()
@@ -117,35 +119,6 @@ class PlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ── Phase 7: LibVLC primary engine ────────────────────────────────────────
-        // Forward all video intents to VlcPlayerActivity (LibVLC-powered).
-        // LibVLC provides: sample-accurate seeking, native audio delay (μs), embedded
-        // subtitle rendering, hardware + software codec auto-fallback.
-        // ACTION_SEND + EXTRA_TEXT (URL share from browser/messenger) also resolved.
-        val _vlcUri: android.net.Uri? = intent.data
-            ?: intent.getStringExtra(android.content.Intent.EXTRA_TEXT)?.trim()
-                ?.split(Regex("\\s+"))
-                ?.firstOrNull { t ->
-                    t.startsWith("http", ignoreCase = true) ||
-                        t.startsWith("rtsp", ignoreCase = true) ||
-                        t.startsWith("rtmp", ignoreCase = true)
-                }?.let { android.net.Uri.parse(it) }
-        if (_vlcUri != null) {
-            startActivity(
-                android.content.Intent(
-                    this,
-                    dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerActivity::class.java,
-                ).apply {
-                    action = android.content.Intent.ACTION_VIEW
-                    data = _vlcUri
-                    addFlags(android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION)
-                },
-            )
-            overridePendingTransition(0, 0)
-            finish()
-            return
-        }
-        // ─────────────────────────────────────────────────────────────────────────
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
@@ -154,19 +127,47 @@ class PlayerActivity : ComponentActivity() {
         // PHASE 5: Normalise ACTION_SEND + EXTRA_TEXT (URL) → ACTION_VIEW + intent.data
         normaliseIntentUri(intent)
 
+        // Extract video URI
+        val videoUri: Uri? = intent.data
+            ?: intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+                ?.split(Regex("\\s+"))
+                ?.firstOrNull { t ->
+                    t.startsWith("http", ignoreCase = true) ||
+                        t.startsWith("rtsp", ignoreCase = true) ||
+                        t.startsWith("rtmp", ignoreCase = true)
+                }?.let { Uri.parse(it) }
+
+        // If we have a video URI, use VlcPlayerAdapter (LibVLC backend)
+        // Otherwise, fall back to ExoPlayer/MediaController path (for non-video intents)
+        val useVlc = videoUri != null
+
+        // Create VLC adapter if needed
+        if (useVlc) {
+            vlcAdapter = VlcPlayerAdapter(applicationContext).also { adapter ->
+                adapter.setMediaItem(MediaItem.fromUri(videoUri!!))
+                adapter.prepare()
+                adapter.play()
+            }
+        }
+
         setContent {
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-            var player by remember { mutableStateOf<MediaController?>(null) }
+            var player by remember { mutableStateOf<Player?>(null) }
             var showTrimDialog by remember { mutableStateOf(false) }
 
+            // For VLC path: use vlcAdapter directly. For ExoPlayer path: use MediaController
             LifecycleStartEffect(Unit) {
-                maybeInitControllerFuture()
-                lifecycleScope.launch {
-                    player = controllerFuture?.await()
+                if (useVlc) {
+                    player = vlcAdapter
+                } else {
+                    maybeInitControllerFuture()
+                    lifecycleScope.launch {
+                        player = controllerFuture?.await()
+                    }
                 }
-
                 onStopOrDispose {
-                    player = null
+                    if (!useVlc) player = null
+                    // For VLC, player reference is held by vlcAdapter — released in onDestroy
                 }
             }
 
@@ -193,10 +194,23 @@ class PlayerActivity : ComponentActivity() {
                                 controllerFuture?.await()?.addSubtitleTrack(uri)
                             }
                         },
-                        onBackClick = { finishAndStopPlayerSession() },
+                        onBackClick = {
+                            if (useVlc) {
+                                vlcAdapter?.release()
+                                vlcAdapter = null
+                                finish()
+                            } else {
+                                finishAndStopPlayerSession()
+                            }
+                        },
                         onPlayInBackgroundClick = {
-                            playInBackground = true
-                            finish()
+                            if (useVlc) {
+                                // VLC background playback via service not yet supported
+                                finish()
+                            } else {
+                                playInBackground = true
+                                finish()
+                            }
                         },
                         onScreenshotClick = { captureScreenshot() },
                         onShareClick = { shareCurrentVideo() },
@@ -207,15 +221,15 @@ class PlayerActivity : ComponentActivity() {
 
                     if (showTrimDialog) {
                         val currentPlayer = player
-                        val videoUri = mediaController?.currentMediaItem?.localConfiguration?.uri ?: intent.data
+                        val currentUri = videoUri ?: (mediaController?.currentMediaItem?.localConfiguration?.uri ?: intent.data)
                         TrimVideoDialog(
-                            videoUri = videoUri,
+                            videoUri = currentUri,
                             durationMs = currentPlayer?.duration?.takeIf { it > 0 } ?: 0L,
                             currentPositionMs = currentPlayer?.currentPosition ?: 0L,
                             onDismiss = { showTrimDialog = false },
                             onTrimConfirmed = { startMs, endMs ->
                                 showTrimDialog = false
-                                if (videoUri != null) trimVideo(videoUri, startMs, endMs)
+                                currentUri?.let { trimVideo(it, startMs, endMs) }
                             },
                         )
                     }
@@ -821,6 +835,13 @@ class PlayerActivity : ComponentActivity() {
     private fun finishAndStopPlayerSession() {
         finish()
         mediaController?.stopPlayerSession()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Release VLC adapter if it was used
+        vlcAdapter?.release()
+        vlcAdapter = null
     }
 
     override fun onWindowAttributesChanged(params: WindowManager.LayoutParams?) {
