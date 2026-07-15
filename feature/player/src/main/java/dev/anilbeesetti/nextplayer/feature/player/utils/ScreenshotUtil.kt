@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.widget.Toast
 import dev.anilbeesetti.nextplayer.core.ui.R
 import java.io.File
@@ -63,6 +64,7 @@ object ScreenshotUtil {
                 Toast.makeText(context, R.string.screenshot_saved, Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
+            Log.e("ScreenshotUtil", "screenshot capture failed", e)
             e.printStackTrace()
             Toast.makeText(context, R.string.screenshot_failed, Toast.LENGTH_SHORT).show()
         }

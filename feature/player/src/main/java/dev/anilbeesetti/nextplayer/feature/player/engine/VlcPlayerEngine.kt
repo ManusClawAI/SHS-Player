@@ -265,7 +265,10 @@ class VlcPlayerEngine(private val context: Context) {
     fun getAudioDelay(): Long {
         return try {
             (mediaPlayer?.audioDelay ?: 0L) / 1000L
-        } catch (e: Exception) { 0L }
+        } catch (e: Exception) {
+            Log.e(TAG, "getAudioDelay failed, returning 0", e)
+            0L
+        }
     }
 
     /**
