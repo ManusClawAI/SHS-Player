@@ -50,6 +50,17 @@ class VlcPlayerAdapter(
     @Volatile private var playbackState = Player.STATE_IDLE
     @Volatile private var currentMediaItem: MediaItem? = null
     @Volatile private var mediaItemCount = 0
+    @Volatile private var mediaItemsList: MutableList<MediaItem> = mutableListOf()
+    @Volatile private var currentIndex: Int = 0
+    @Volatile private var repeatMode: Int = Player.REPEAT_MODE_OFF
+    @Volatile private var shuffleMode: Boolean = false
+    @Volatile private var skipSilence: Boolean = false
+    /**
+     * Pseudo audio session ID — VLC doesn't expose the real one. We generate
+     * a stable positive int per adapter so AudioFx-based UIs can bind without
+     * breaking (they will see no real data — VLC plays via OpenSLES).
+     */
+    private val audioSessionId: Int = System.identityHashCode(this) and 0x7FFFFFFF
     @Volatile private var volume = 1f
     @Volatile private var videoSize = VideoSize.UNKNOWN
     @Volatile private var playbackParameters = PlaybackParameters(1f, 1f)
@@ -78,8 +89,37 @@ class VlcPlayerAdapter(
         }
         override fun onEndReached() {
             mainHandler.post {
-                setPlaybackState(Player.STATE_ENDED)
-                notifyListeners { it.onPlaybackStateChanged(Player.STATE_ENDED); it.onIsPlayingChanged(false) }
+                // Auto-advance to next media item if available and not in REPEAT_MODE_ONE
+                if (hasNextMediaItem() && repeatMode != Player.REPEAT_MODE_ONE) {
+                    seekToNextMediaItem()
+                    setPlaybackState(Player.STATE_READY)
+                    notifyListeners {
+                        it.onPlaybackStateChanged(Player.STATE_READY)
+                        it.onIsPlayingChanged(true)
+                    }
+                } else if (repeatMode == Player.REPEAT_MODE_ALL && mediaItemsList.size > 1) {
+                    currentIndex = 0
+                    switchToCurrentItem(Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
+                    setPlaybackState(Player.STATE_READY)
+                    notifyListeners {
+                        it.onPlaybackStateChanged(Player.STATE_READY)
+                        it.onIsPlayingChanged(true)
+                    }
+                } else if (repeatMode == Player.REPEAT_MODE_ONE) {
+                    engine.seekTo(0L)
+                    engine.play()
+                    setPlaybackState(Player.STATE_READY)
+                    notifyListeners {
+                        it.onPlaybackStateChanged(Player.STATE_READY)
+                        it.onIsPlayingChanged(true)
+                    }
+                } else {
+                    setPlaybackState(Player.STATE_ENDED)
+                    notifyListeners {
+                        it.onPlaybackStateChanged(Player.STATE_ENDED)
+                        it.onIsPlayingChanged(false)
+                    }
+                }
             }
         }
         override fun onError(message: String?) {
@@ -162,8 +202,10 @@ class VlcPlayerAdapter(
     }
     override fun setMediaItems(mediaItems: MutableList<MediaItem>) {
         if (mediaItems.isEmpty()) return
-        currentMediaItem = mediaItems[0]
+        mediaItemsList = mediaItems.toMutableList()
         mediaItemCount = mediaItems.size
+        currentIndex = 0
+        currentMediaItem = mediaItems[0]
         val uri = mediaItems[0].localConfiguration?.uri ?: return
         engine.setDataSource(uri)
         mainHandler.post {
@@ -174,7 +216,26 @@ class VlcPlayerAdapter(
         }
     }
     override fun setMediaItems(mediaItems: MutableList<MediaItem>, startIndex: Int, startPositionMs: Long) {
-        setMediaItems(mediaItems)
+        if (mediaItems.isEmpty()) return
+        mediaItemsList = mediaItems.toMutableList()
+        mediaItemCount = mediaItems.size
+        currentIndex = startIndex.coerceIn(0, mediaItems.size - 1)
+        currentMediaItem = mediaItems[currentIndex]
+        val uri = currentMediaItem?.localConfiguration?.uri ?: return
+        engine.setDataSource(uri)
+        if (startPositionMs > 0 && startPositionMs != C.TIME_UNSET) {
+            // Seek after play starts
+            mainHandler.post {
+                engine.play()
+                engine.seekTo(startPositionMs)
+            }
+        }
+        mainHandler.post {
+            notifyListeners {
+                it.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+                it.onMediaItemTransition(currentMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
+            }
+        }
     }
     override fun setMediaItems(mediaItems: MutableList<MediaItem>, resetPosition: Boolean) {
         setMediaItems(mediaItems)
@@ -266,16 +327,44 @@ class VlcPlayerAdapter(
     }
     override fun seekBack() { engine.seekRelative(-10_000L) }
     override fun seekForward() { engine.seekRelative(10_000L) }
-    override fun seekToNext() { /* no-op */ }
-    override fun seekToPrevious() { /* no-op */ }
-    override fun seekToNextMediaItem() { /* no-op */ }
-    override fun seekToPreviousMediaItem() { /* no-op */ }
-    override fun hasPreviousMediaItem(): Boolean = false
-    override fun hasNextMediaItem(): Boolean = false
-    override fun getMediaItemAt(index: Int): MediaItem = currentMediaItem ?: MediaItem.EMPTY
+    override fun seekToNext() {
+        seekToNextMediaItem()
+    }
+    override fun seekToPrevious() {
+        seekToPreviousMediaItem()
+    }
+    override fun seekToNextMediaItem() {
+        if (!hasNextMediaItem()) return
+        currentIndex++
+        switchToCurrentItem(Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+    }
+    override fun seekToPreviousMediaItem() {
+        if (!hasPreviousMediaItem()) return
+        currentIndex--
+        switchToCurrentItem(Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+    }
+    override fun hasPreviousMediaItem(): Boolean = currentIndex > 0
+    override fun hasNextMediaItem(): Boolean = currentIndex < mediaItemsList.size - 1
+    override fun getMediaItemAt(index: Int): MediaItem = mediaItemsList.getOrNull(index) ?: MediaItem.EMPTY
     override fun getCurrentMediaItem(): MediaItem? = currentMediaItem
-    override fun getCurrentMediaItemIndex(): Int = 0
+    override fun getCurrentMediaItemIndex(): Int = currentIndex
     override fun getMediaItemCount(): Int = mediaItemCount
+    override fun getNextMediaItemIndex(): Int = if (hasNextMediaItem()) currentIndex + 1 else C.INDEX_UNSET
+    override fun getPreviousMediaItemIndex(): Int = if (hasPreviousMediaItem()) currentIndex - 1 else C.INDEX_UNSET
+
+    private fun switchToCurrentItem(reason: Int) {
+        val item = mediaItemsList.getOrNull(currentIndex) ?: return
+        currentMediaItem = item
+        val uri = item.localConfiguration?.uri ?: return
+        engine.setDataSource(uri)
+        engine.play()
+        mainHandler.post {
+            notifyListeners {
+                it.onMediaItemTransition(item, reason)
+                it.onPositionDiscontinuity(Player.DISCONTINUITY_REASON_AUTO_TRANSITION)
+            }
+        }
+    }
     override fun getDuration(): Long = engine.duration
     override fun getCurrentPosition(): Long = engine.position
     override fun getBufferedPosition(): Long = engine.position
@@ -324,8 +413,23 @@ class VlcPlayerAdapter(
         engine.setVolume((volume * 100).toInt().coerceIn(0, 200))
         mainHandler.post { notifyListeners { it.onVolumeChanged(volume) } }
     }
-    override fun getAudioSessionId(): Int = C.AUDIO_SESSION_ID_UNSET
-    override fun setAudioAttributes(audioAttributes: AudioAttributes, handleAudioFocus: Boolean) { /* no-op */ }
+    override fun getAudioSessionId(): Int {
+        // VLC manages its own audio session internally via OpenSLES.
+        // We generate a stable fake ID per adapter instance so AudioFx-based
+        // visualizers can bind to *something* (they'll see no real data, but
+        // the UI won't break). Real audio session would require VLC to expose
+        // audioSessionId — see https://code.videolan.org/videolan/vlc-android/-/issues
+        return audioSessionId
+    }
+    override fun setAudioAttributes(audioAttributes: AudioAttributes, handleAudioFocus: Boolean) {
+        // VLC has its own audio output (OpenSLES) — attributes are managed internally.
+    }
+    override fun setSkipSilenceEnabled(skipSilenceEnabled: Boolean) {
+        skipSilence = skipSilenceEnabled
+        engine.setSkipSilenceEnabled(skipSilenceEnabled)
+        mainHandler.post { notifyListeners { it.onSkipSilenceEnabledChanged(skipSilenceEnabled) } }
+    }
+    override fun getSkipSilenceEnabled(): Boolean = skipSilence
 
     // ── Video ───────────────────────────────────────────────────────────
     override fun getVideoSize(): VideoSize = videoSize
@@ -348,16 +452,137 @@ class VlcPlayerAdapter(
     override fun getSurfaceSize(): Size = Size.UNKNOWN
 
     // ── Tracks / Subtitles ──────────────────────────────────────────────
-    override fun getCurrentTracks(): Tracks = Tracks.EMPTY
-    override fun getTrackSelectionParameters(): TrackSelectionParameters = TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT
-    override fun setTrackSelectionParameters(parameters: TrackSelectionParameters) { /* VLC has own track selection */ }
+    override fun getCurrentTracks(): Tracks {
+        // Map VLC's TrackDescription arrays to Media3 Tracks format.
+        // Each TrackDescription has {id: int, name: String}.
+        // We map audio tracks → TRACK_TYPE_AUDIO, video → TRACK_TYPE_VIDEO, spu → TRACK_TYPE_TEXT.
+        val groups = mutableListOf<Tracks.Group>()
+        try {
+            engine.getAudioTracks()?.let { tds ->
+                if (tds.isNotEmpty()) {
+                    val formatBuilder = androidx.media3.common.Format.Builder()
+                    val formats = tds.mapIndexed { idx, td ->
+                        formatBuilder
+                            .setId("audio-$idx")
+                            .setSampleMimeType(androidx.media3.common.MimeTypes.AUDIO_UNKNOWN)
+                            .setLabel(td.name)
+                            .build()
+                    }.toTypedArray()
+                    // Media3 Group is immutable; use empty TrackGroup for now
+                    // (real selection happens via setAudioTrack below)
+                    val trackGroup = androidx.media3.common.TrackGroup(*formats)
+                    groups.add(Tracks.Group(trackGroup, false, IntArray(formats.size) { 0 }))
+                }
+            }
+            engine.getVideoTracks()?.let { tds ->
+                if (tds.isNotEmpty()) {
+                    val formats = tds.mapIndexed { idx, td ->
+                        androidx.media3.common.Format.Builder()
+                            .setId("video-$idx")
+                            .setSampleMimeType(androidx.media3.common.MimeTypes.VIDEO_UNKNOWN)
+                            .setLabel(td.name)
+                            .build()
+                    }.toTypedArray()
+                    val trackGroup = androidx.media3.common.TrackGroup(*formats)
+                    groups.add(Tracks.Group(trackGroup, false, IntArray(formats.size) { 0 }))
+                }
+            }
+            engine.getSubtitleTracks()?.let { tds ->
+                if (tds.isNotEmpty()) {
+                    val formats = tds.mapIndexed { idx, td ->
+                        androidx.media3.common.Format.Builder()
+                            .setId("text-$idx")
+                            .setSampleMimeType(androidx.media3.common.MimeTypes.TEXT_UNKNOWN)
+                            .setLabel(td.name)
+                            .build()
+                    }.toTypedArray()
+                    val trackGroup = androidx.media3.common.TrackGroup(*formats)
+                    groups.add(Tracks.Group(trackGroup, false, IntArray(formats.size) { 0 }))
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "getCurrentTracks failed", e)
+        }
+        return Tracks(groups)
+    }
+    override fun getTrackSelectionParameters(): TrackSelectionParameters {
+        // Build parameters from current VLC track selections
+        return TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT.buildUpon().build()
+    }
+    override fun setTrackSelectionParameters(parameters: TrackSelectionParameters) {
+        // Apply track overrides to VLC
+        // Look at parameters.overrides — each override has a mediaTrackGroup and track indices
+        try {
+            for (override in parameters.overrides.values) {
+                val group = override.mediaTrackGroup
+                val format = group.getFormat(override.trackIndices.firstOrNull() ?: 0)
+                val idStr = format.id ?: ""
+                when {
+                    idStr.startsWith("audio-") -> {
+                        val idx = idStr.removePrefix("audio-").toIntOrNull() ?: continue
+                        engine.getAudioTracks()?.getOrNull(idx)?.let { td ->
+                            engine.setAudioTrack(td.id)
+                        }
+                    }
+                    idStr.startsWith("video-") -> {
+                        val idx = idStr.removePrefix("video-").toIntOrNull() ?: continue
+                        engine.getVideoTracks()?.getOrNull(idx)?.let { td ->
+                            engine.setVideoTrack(td.id)
+                        }
+                    }
+                    idStr.startsWith("text-") -> {
+                        val idx = idStr.removePrefix("text-").toIntOrNull() ?: continue
+                        engine.getSubtitleTracks()?.getOrNull(idx)?.let { td ->
+                            engine.setSubtitleTrack(td.id)
+                        }
+                    }
+                }
+            }
+            // Handle disabled track types
+            for (trackType in parameters.disabledTrackTypes) {
+                when (trackType) {
+                    androidx.media3.common.C.TRACK_TYPE_AUDIO -> engine.setAudioTrack(-1)
+                    androidx.media3.common.C.TRACK_TYPE_VIDEO -> {
+                        // VLC doesn't have "video off" — skip
+                    }
+                    androidx.media3.common.C.TRACK_TYPE_TEXT -> engine.setSubtitleTrack(-1)
+                }
+            }
+            mainHandler.post { notifyListeners { it.onTrackSelectionParametersChanged(parameters) } }
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "setTrackSelectionParameters failed", e)
+        }
+    }
     override fun getCurrentCues(): CueGroup = CueGroup(emptyList(), 0L)
 
     // ── Repeat / Shuffle ────────────────────────────────────────────────
-    override fun getRepeatMode(): Int = Player.REPEAT_MODE_OFF
-    override fun setRepeatMode(repeatMode: Int) { /* no-op */ }
-    override fun getShuffleModeEnabled(): Boolean = false
-    override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) { /* no-op */ }
+    override fun getRepeatMode(): Int = repeatMode
+    override fun setRepeatMode(mode: Int) {
+        if (mode == repeatMode) return
+        repeatMode = mode
+        mainHandler.post { notifyListeners { it.onRepeatModeChanged(mode) } }
+    }
+    override fun getShuffleModeEnabled(): Boolean = shuffleMode
+    override fun setShuffleModeEnabled(enabled: Boolean) {
+        if (enabled == shuffleMode) return
+        shuffleMode = enabled
+        if (enabled && mediaItemsList.size > 1) {
+            // Shuffle the playlist (keeping current item at start)
+            val current = mediaItemsList[currentIndex]
+            val others = mediaItemsList.toMutableList().also { it.removeAt(currentIndex) }
+            others.shuffle()
+            mediaItemsList = (listOf(current) + others).toMutableList()
+            currentIndex = 0
+            mainHandler.post {
+                notifyListeners {
+                    it.onShuffleModeEnabledChanged(true)
+                    it.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+                }
+            }
+        } else {
+            mainHandler.post { notifyListeners { it.onShuffleModeEnabledChanged(false) } }
+        }
+    }
 
     // ── Listeners ───────────────────────────────────────────────────────
     override fun addListener(listener: Player.Listener) {
