@@ -38,20 +38,27 @@ class PlaybackParametersState(
     }
 
     /**
-     * Skip silence is not supported by VLC.
-     * Kept as a no-op for UI compatibility.
+     * Skip silence — delegates to VlcPlayerAdapter which uses VLC's
+     * :input-fast-seek + :clock-synchro=0 options.
      */
     fun setIsSkipSilenceEnabled(enabled: Boolean) {
-        skipSilenceEnabled = false
+        skipSilenceEnabled = enabled
+        (player as? dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerAdapter)
+            ?.setSkipSilenceEnabled(enabled)
     }
 
     suspend fun observe() {
         updateSpeed()
-        skipSilenceEnabled = false
+        skipSilenceEnabled = (player as? dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerAdapter)
+            ?.getSkipSilenceEnabled() ?: false
 
         player.listen { events ->
             if (events.contains(Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)) {
                 updateSpeed()
+            }
+            if (events.contains(Player.EVENT_SKIP_SILENCE_ENABLED_CHANGED)) {
+                skipSilenceEnabled = (player as? dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerAdapter)
+                    ?.getSkipSilenceEnabled() ?: false
             }
         }
     }

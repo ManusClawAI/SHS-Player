@@ -278,8 +278,6 @@ class VlcPlayerAdapter(
     override fun getSeekBackIncrement(): Long = 10_000L
     override fun getSeekForwardIncrement(): Long = 10_000L
     override fun getMaxSeekToPreviousPosition(): Long = 0L
-    override fun getNextMediaItemIndex(): Int = C.INDEX_UNSET
-    override fun getPreviousMediaItemIndex(): Int = C.INDEX_UNSET
     override fun getBufferedPercentage(): Int = if (engine.duration > 0) ((engine.position * 100) / engine.duration).toInt() else 0
     override fun getContentPosition(): Long = engine.position
     override fun getContentBufferedPosition(): Long = engine.position
@@ -424,12 +422,12 @@ class VlcPlayerAdapter(
     override fun setAudioAttributes(audioAttributes: AudioAttributes, handleAudioFocus: Boolean) {
         // VLC has its own audio output (OpenSLES) — attributes are managed internally.
     }
-    override fun setSkipSilenceEnabled(skipSilenceEnabled: Boolean) {
+    fun setSkipSilenceEnabled(skipSilenceEnabled: Boolean) {
         skipSilence = skipSilenceEnabled
         engine.setSkipSilenceEnabled(skipSilenceEnabled)
         mainHandler.post { notifyListeners { it.onSkipSilenceEnabledChanged(skipSilenceEnabled) } }
     }
-    override fun getSkipSilenceEnabled(): Boolean = skipSilence
+    fun getSkipSilenceEnabled(): Boolean = skipSilence
 
     // ── Video ───────────────────────────────────────────────────────────
     override fun getVideoSize(): VideoSize = videoSize
@@ -468,10 +466,8 @@ class VlcPlayerAdapter(
                             .setLabel(td.name)
                             .build()
                     }.toTypedArray()
-                    // Media3 Group is immutable; use empty TrackGroup for now
-                    // (real selection happens via setAudioTrack below)
                     val trackGroup = androidx.media3.common.TrackGroup(*formats)
-                    groups.add(Tracks.Group(trackGroup, false, IntArray(formats.size) { 0 }))
+                    groups.add(Tracks.Group(trackGroup, false, IntArray(formats.size) { 0 }, BooleanArray(formats.size) { true }))
                 }
             }
             engine.getVideoTracks()?.let { tds ->
@@ -484,7 +480,7 @@ class VlcPlayerAdapter(
                             .build()
                     }.toTypedArray()
                     val trackGroup = androidx.media3.common.TrackGroup(*formats)
-                    groups.add(Tracks.Group(trackGroup, false, IntArray(formats.size) { 0 }))
+                    groups.add(Tracks.Group(trackGroup, false, IntArray(formats.size) { 0 }, BooleanArray(formats.size) { true }))
                 }
             }
             engine.getSubtitleTracks()?.let { tds ->
@@ -497,7 +493,7 @@ class VlcPlayerAdapter(
                             .build()
                     }.toTypedArray()
                     val trackGroup = androidx.media3.common.TrackGroup(*formats)
-                    groups.add(Tracks.Group(trackGroup, false, IntArray(formats.size) { 0 }))
+                    groups.add(Tracks.Group(trackGroup, false, IntArray(formats.size) { 0 }, BooleanArray(formats.size) { true }))
                 }
             }
         } catch (e: Exception) {

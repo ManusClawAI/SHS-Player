@@ -77,6 +77,7 @@ import dev.anilbeesetti.nextplayer.feature.player.extensions.registerForSuspendA
 import dev.anilbeesetti.nextplayer.feature.player.extensions.setExtras
 import dev.anilbeesetti.nextplayer.feature.player.extensions.uriToSubtitleConfiguration
 import dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlayerAdapter
+import dev.anilbeesetti.nextplayer.feature.player.engine.VlcPlaybackService
 import dev.anilbeesetti.nextplayer.feature.player.utils.PlayerApi
 import dev.anilbeesetti.nextplayer.feature.player.utils.ScreenshotUtil
 import java.io.File
@@ -191,13 +192,23 @@ class PlayerActivity : ComponentActivity() {
                             }
                         },
                         onPlayInBackgroundClick = {
-                            if (useVlc) {
-                                // VLC background playback via service not yet supported
-                                finish()
-                            } else {
-                                playInBackground = true
-                                finish()
+                            // Start VlcPlaybackService to continue playback in background
+                            val uri = videoUri ?: intent.data
+                            val title = videoUri?.lastPathSegment ?: intent.data?.lastPathSegment ?: "SHS Player"
+                            if (uri != null) {
+                                VlcPlaybackService.startPlayback(
+                                    context = this@PlayerActivity,
+                                    uri = uri.toString(),
+                                    title = title.toString(),
+                                    isAudio = false,
+                                )
+                                // Update engine so it doesn't release when activity finishes
+                                // VlcPlaybackService has its own engine — release ours
+                                vlcAdapter?.release()
+                                vlcAdapter = null
                             }
+                            playInBackground = true
+                            finish()
                         },
                         onScreenshotClick = { captureScreenshot() },
                         onShareClick = { shareCurrentVideo() },
