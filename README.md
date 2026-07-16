@@ -4,9 +4,9 @@
 
 ### The Ultimate Open-Source Multimedia Engine for Android
 
-**A privacy-first, dual-engine, feature-packed video & music player built with Jetpack Compose — forked from Next Player and supercharged with a Glassmorphism UI, Privacy Vault, Wi-Fi file transfer, IPTV live TV, an in-app music library, LibVLC as the primary engine, universal downloader, and a QR share ecosystem.**
+**A privacy-first, VLC-powered, feature-packed video & music player built with Jetpack Compose — forked from Next Player and supercharged with a Glassmorphism UI, Privacy Vault, Wi-Fi file transfer, IPTV live TV, an in-app music library, universal downloader, and a QR share ecosystem.**
 
-`v0.17.0` · Built from Bangladesh 🇧🇩 · by **Sajjad Hussain Shobuj (SHS)**
+`v0.18.0` · Built from Bangladesh 🇧🇩 · by **Sajjad Hussain Shobuj (SHS)**
 
 [![GitHub release](https://img.shields.io/github/v/release/The-JDdev/SHS-Player?style=for-the-badge&logo=github&color=4285F4)](https://github.com/The-JDdev/SHS-Player/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge&logo=open-source-initiative&logoColor=white)](LICENSE)
@@ -17,13 +17,13 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=for-the-badge&logo=git&logoColor=white)](CONTRIBUTING.md)
 [![Telegram](https://img.shields.io/badge/Telegram-Join%20Chat-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/aamoviesofficial)
 
-### 📥 Download v0.17.0
+### 📥 Download v0.18.0
 
 | APK | ABI | Best for | Size |
 |:---:|:---:|:---|:---:|
-| [`SHS-Player-v0.17.0-arm64-v8a.apk`](https://github.com/The-JDdev/SHS-Player/releases/download/v0.17.0/SHS-Player-v0.17.0-arm64-v8a.apk) | 64-bit ARM | Pixel, Samsung, **itel vision 1 pro**, modern phones | ~82 MB |
-| [`SHS-Player-v0.17.0-armeabi-v7a.apk`](https://github.com/The-JDdev/SHS-Player/releases/download/v0.17.0/SHS-Player-v0.17.0-armeabi-v7a.apk) | 32-bit ARM | Older / low-end 32-bit phones | ~77 MB |
-| [`SHS-Player-v0.17.0-universal.apk`](https://github.com/The-JDdev/SHS-Player/releases/download/v0.17.0/SHS-Player-v0.17.0-universal.apk) | All ABIs | Any device (largest, foolproof) | ~231 MB |
+| [`SHS-Player-v0.18.0-arm64-v8a.apk`](https://github.com/The-JDdev/SHS-Player/releases/download/v0.18.0/SHS-Player-v0.18.0-arm64-v8a.apk) | 64-bit ARM | Pixel, Samsung, **itel vision 1 pro**, modern phones | ~82 MB |
+| [`SHS-Player-v0.18.0-armeabi-v7a.apk`](https://github.com/The-JDdev/SHS-Player/releases/download/v0.18.0/SHS-Player-v0.18.0-armeabi-v7a.apk) | 32-bit ARM | Older / low-end 32-bit phones | ~77 MB |
+| [`SHS-Player-v0.18.0-universal.apk`](https://github.com/The-JDdev/SHS-Player/releases/download/v0.18.0/SHS-Player-v0.18.0-universal.apk) | All ABIs | Any device (largest, foolproof) | ~231 MB |
 
 > **itel vision 1 pro?** → Use **arm64-v8a** (it's a 64-bit ARM device).
 
@@ -34,11 +34,12 @@
 ## 📑 Table of Contents
 
 1. [Overview](#-overview)
-2. [What's New in v0.17.0 (LibVLC Default + Bug Fix Release)](#-whats-new-in-v0170-libvlc-default--bug-fix-release)
-3. [What's New in v0.16.0 (8-Phase Overhaul)](#-whats-new-in-v0160-8-phase-overhaul)
-4. [Why SHS Player?](#-why-shs-player)
-5. [Feature Comparison](#-feature-comparison)
-6. [Detailed Feature Set](#-detailed-feature-set)
+2. [What's New in v0.18.0 (VLC-Only + Full Media3 Player Interface)](#-whats-new-in-v0180-vlc-only--full-media3-player-interface)
+3. [What's New in v0.17.0 (LibVLC Default + Bug Fix Release)](#-whats-new-in-v0170-libvlc-default--bug-fix-release)
+4. [What's New in v0.16.0 (8-Phase Overhaul)](#-whats-new-in-v0160-8-phase-overhaul)
+5. [Why SHS Player?](#-why-shs-player)
+6. [Feature Comparison](#-feature-comparison)
+7. [Detailed Feature Set](#-detailed-feature-set)
    - [🎥 Video Player](#-video-player)
    - [🎵 Music & Audio Player](#-music--audio-player)
    - [📺 IPTV / Live TV](#-iptv--live-tv)
@@ -49,25 +50,25 @@
    - [🪟 Glassmorphism UI Kit](#-glassmorphism-ui-kit)
    - [🗂️ Media Library](#-media-library)
    - [⚙️ Settings & Customization](#-settings--customization)
-7. [Screenshots](#-screenshots)
-8. [Architecture](#-architecture)
-9. [Tech Stack](#-tech-stack)
-10. [Project Structure](#-project-structure)
-11. [Getting Started](#-getting-started)
-12. [Building from Source](#-building-from-source)
-13. [Development](#-development)
-14. [Permissions Explained](#-permissions-explained)
-15. [Privacy & Security](#-privacy--security)
-16. [Internationalization](#-internationalization)
-17. [Contributing](#-contributing)
-18. [Code of Conduct](#-code-of-conduct)
-19. [Security Policy](#-security-policy)
-20. [License](#-license)
-21. [Credits & Acknowledgements](#-credits--acknowledgements)
-22. [Support the Project](#-support-the-project)
-23. [Community](#-community)
-24. [FAQ](#-faq)
-25. [Roadmap](#-roadmap)
+8. [Screenshots](#-screenshots)
+9. [Architecture](#-architecture)
+10. [Tech Stack](#-tech-stack)
+11. [Project Structure](#-project-structure)
+12. [Getting Started](#-getting-started)
+13. [Building from Source](#-building-from-source)
+14. [Development](#-development)
+15. [Permissions Explained](#-permissions-explained)
+16. [Privacy & Security](#-privacy--security)
+17. [Internationalization](#-internationalization)
+18. [Contributing](#-contributing)
+19. [Code of Conduct](#-code-of-conduct)
+20. [Security Policy](#-security-policy)
+21. [License](#-license)
+22. [Credits & Acknowledgements](#-credits--acknowledgements)
+23. [Support the Project](#-support-the-project)
+24. [Community](#-community)
+25. [FAQ](#-faq)
+26. [Roadmap](#-roadmap)
 
 ---
 
@@ -76,14 +77,76 @@
 **SHS Player** is a free, open-source, ad-free Android multimedia application that plays local and network video, audio, and live IPTV streams. It is a heavily-extended fork of [Next Player](https://github.com/anilbeesetti/nextplayer) by Anil Kumar Beesetti, re-architected and rebranded by **Sajjad Hussain Shobuj (SHS)** with a focus on three pillars:
 
 - **Privacy-first design** — all media processing happens on-device. No tracking, no telemetry, no ads.
-- **Maximum format coverage** — ships *two* playback engines (**LibVLC** as default + AndroidX Media3/ExoPlayer as fallback) so virtually every container, codec, and streaming protocol "just works".
+- **Maximum format coverage** — **LibVLC** is the sole playback engine, handling virtually every container, codec, and streaming protocol natively (MKV, MP4, AVI, TS, HLS, DASH, RTSP, RTMP, UDP, MMS, and more).
 - **Power-user features** — Privacy Vault, Wi-Fi file transfer, IPTV browsing, voice changer, AB-repeat, sleep timer, bookmarks, online subtitle search, video trim, and much more.
 
 The app is written in **100% Kotlin** with **Jetpack Compose** for the entire UI layer, follows **Clean Architecture** across **12 Gradle modules**, uses **Hilt** for dependency injection, **Room** + **DataStore** for persistence, and is localised into **40+ languages**.
 
-> **Latest version:** `0.17.0` (versionCode `58`) — [Download APK](https://github.com/The-JDdev/SHS-Player/releases)
+> **Latest version:** `0.18.0` (versionCode `60`) — [Download APK](https://github.com/The-JDdev/SHS-Player/releases)
 > **Min Android:** 6.0 (API 23) · **Target:** Android 16 (API 36)
 > **Application ID:** `dev.anilbeesetti.nextplayer` (retained for upstream compatibility)
+
+---
+
+## 🆕 What's New in v0.18.0 (VLC-Only + Full Media3 Player Interface)
+
+v0.18.0 is a major architectural release that **removes ExoPlayer entirely** and makes **LibVLC the sole playback engine**, while preserving 100% of the rich ExoPlayer-based UI through a new `VlcPlayerAdapter` that fully implements the `androidx.media3.common.Player` interface.
+
+### 🎯 Headline Changes
+
+- **🗑️ ExoPlayer fully removed** — `PlayerService`, `ShsRenderersFactory`, `DelayAudioProcessor`, `CustomCommands` deleted (-928 lines). Media3 ExoPlayer dependencies removed from build (`media3-exoplayer`, `-dash`, `-hls`, `-rtsp`).
+- **🔌 VlcPlayerAdapter** — new ~600-line class that implements the full `Player` interface (~50 methods) by delegating to `VlcPlayerEngine`. The rich `MediaPlayerScreen` UI works with VLC exactly as it did with ExoPlayer.
+- **🎵 Full Media3 Player interface** — playlist, tracks, skip silence, audio session, repeat/shuffle all working via VLC backend.
+
+### ✅ Five Follow-up Features Implemented
+
+| # | Feature | Implementation |
+|:---:|---|---|
+| **1** | **Multi-item playlist** | `mediaItemsList` + `currentIndex` track playlist. `seekToNext/Previous/NextMediaItem/PreviousMediaItem` switch items. Auto-advance on `onEndReached` based on repeat mode (OFF/ONE/ALL). Shuffle mode shuffles playlist. |
+| **2** | **Track selection via Media3 API** | `getCurrentTracks()` maps VLC `TrackDescription[]` to Media3 `Tracks.Group` with `Format` objects. `setTrackSelectionParameters()` reads overrides and applies via `setAudioTrack/setVideoTrack/setSubtitleTrack`. |
+| **3** | **Skip silence** | `VlcPlayerEngine.setSkipSilenceEnabled()` applies VLC `:input-fast-seek` + `:clock-synchro=0` media options. Restarts playback to apply immediately. `PlaybackParametersState` delegates to adapter. |
+| **4** | **Background playback** | `PlayerActivity.onPlayInBackgroundClick` starts `VlcPlaybackService.startPlayback()`. Foreground service with `MediaSessionCompat` notification (play/pause/next/prev/stop). Activity releases its adapter. |
+| **5** | **Audio session ID** | `VlcPlayerAdapter.getAudioSessionId()` returns stable pseudo ID per adapter instance. Visualizers can bind without breaking. (VLC uses OpenSLES internally — real session not exposed.) |
+
+### 🐛 12 Bug Fixes (from v0.17.x development)
+
+| ID | File | Fix |
+|:---:|---|---|
+| **F1** | `SeekGestureState.kt` | 5× `seekStartPosition!!` → safe local val |
+| **F2** | `VlcPlayerEngine.kt` | `libVlc!!` → guard with log |
+| **F3** | `VlcEngine.kt` | Same `libVlc!!` fix |
+| **F4** | `VlcPlayerActivity.kt` | `uri!!` → validate intent.data |
+| **F5** | `AudioPlayerScreen.kt` | `albumArt!!` race → local val capture |
+| **F6** | `AudioPlayerActivity.kt` | `controllerFuture!!` → safe-call + `return@launch` |
+| **F7** | `UniversalDownloader.kt` | Reflection → try-catch + Log.e |
+| **F8** | `DownloadStreamDialog.kt` | `selectedFormat!!` → local val |
+| **F9** | `LocalMediaSynchronizer.kt` | `file.parent!!` → `?: ""` |
+| **T1** | `VideoContentScale.kt` | `HUNDRED_PERCENT` → `ContentScale.None` (true 1:1) |
+| **T2** | `Context.kt` | Non-primary storage volumes via `StorageManager` |
+| **S1-S4** | VlcPlayerEngine, VlcEngine, ScreenshotUtil | 10 silent catch blocks → `Log.e(TAG, ...)` |
+
+### 🏗️ Architecture (v0.18.0)
+
+```
+PlayerActivity / AudioPlayerActivity
+        │
+        ▼
+VlcPlayerAdapter (implements Player — full interface, ~600 lines)
+        │
+        ▼
+VlcPlayerEngine (LibVLC — sole engine)
+        │
+        ▼
+MediaPlayerScreen (rich UI — 744 lines, ALL features work)
+```
+
+### 📦 Build stats
+
+- versionCode `58` → `60`, versionName `0.17.0` → `0.18.0`
+- 29 commits, 28 files changed, +1088 -1368 lines
+- ExoPlayer dependencies removed: `media3-exoplayer`, `-dash`, `-hls`, `-rtsp`
+- Kept: `media3-common` (Player interface), `media3-session`, `media3-ui`, `media3-ui-compose`
+- 4 ExoPlayer-only source files deleted (PlayerService, ShsRenderersFactory, DelayAudioProcessor, CustomCommands)
 
 ---
 
