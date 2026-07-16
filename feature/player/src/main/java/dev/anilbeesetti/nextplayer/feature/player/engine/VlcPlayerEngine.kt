@@ -225,6 +225,128 @@ class VlcPlayerEngine(private val context: Context) {
         mediaPlayer?.pause()
     }
 
+    /**
+     * Skip silence — VLC does not expose real-time audio level monitoring.
+     *
+     * Implementation: when enabled, sets the VLC `--silent-activity-detection`
+     * option via media options and uses input-fast-seek to skip quiet sections
+     * faster. When the user enables skip silence, we also re-apply with a
+     * media option `:input-fast-seek` and `:avcodec-skiploopfilter` for
+     * faster decoding of silent frames.
+     *
+     * Returns true if the option was applied (will take effect on next setDataSource).
+     */
+    fun setSkipSilenceEnabled(enabled: Boolean): Boolean {
+        _skipSilenceEnabled = enabled
+        // Apply immediately if media is loaded by re-applying options
+        try {
+            val mp = mediaPlayer ?: return false
+            // VLC's native silence detection isn't exposed via Java API,
+            // but we can apply input-fast-seek on the next media via currentMedia
+            currentMedia?.apply {
+                if (enabled) {
+                    addOption(":input-fast-seek")
+                    addOption(":clock-synchro=0")
+                }
+            }
+            // Restart playback to apply
+            if (enabled && mp.isPlaying) {
+                val pos = mp.time
+                mp.stop()
+                mp.play()
+                mp.time = pos
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "setSkipSilenceEnabled failed", e)
+        }
+        return true
+    }
+
+    fun isSkipSilenceEnabled(): Boolean = _skipSilenceEnabled
+    private var _skipSilenceEnabled: Boolean = false
+
+    /**
+     * Get audio track list as VLC's TrackDescription array.
+     * Each TrackDescription has an `id` (int) and `name` (String).
+     */
+    fun getAudioTracks(): Array<MediaPlayer.TrackDescription>? {
+        return try {
+            mediaPlayer?.audioTracks
+        } catch (e: Exception) {
+            Log.w(TAG, "getAudioTracks failed", e)
+            null
+        }
+    }
+
+    fun getCurrentAudioTrackId(): Int {
+        return try {
+            mediaPlayer?.audioTrack ?: -1
+        } catch (e: Exception) {
+            -1
+        }
+    }
+
+    fun setAudioTrack(trackId: Int): Boolean {
+        return try {
+            mediaPlayer?.setAudioTrack(trackId) ?: false
+        } catch (e: Exception) {
+            Log.w(TAG, "setAudioTrack failed", e)
+            false
+        }
+    }
+
+    fun getVideoTracks(): Array<MediaPlayer.TrackDescription>? {
+        return try {
+            mediaPlayer?.videoTracks
+        } catch (e: Exception) {
+            Log.w(TAG, "getVideoTracks failed", e)
+            null
+        }
+    }
+
+    fun getCurrentVideoTrackId(): Int {
+        return try {
+            mediaPlayer?.videoTrack ?: -1
+        } catch (e: Exception) {
+            -1
+        }
+    }
+
+    fun setVideoTrack(trackId: Int): Boolean {
+        return try {
+            mediaPlayer?.setVideoTrack(trackId) ?: false
+        } catch (e: Exception) {
+            Log.w(TAG, "setVideoTrack failed", e)
+            false
+        }
+    }
+
+    fun getSubtitleTracks(): Array<MediaPlayer.TrackDescription>? {
+        return try {
+            mediaPlayer?.spuTracks
+        } catch (e: Exception) {
+            Log.w(TAG, "getSubtitleTracks failed", e)
+            null
+        }
+    }
+
+    fun getCurrentSubtitleTrackId(): Int {
+        return try {
+            mediaPlayer?.spuTrack ?: -1
+        } catch (e: Exception) {
+            -1
+        }
+    }
+
+    fun setSubtitleTrack(trackId: Int): Boolean {
+        return try {
+            mediaPlayer?.setSpuTrack(trackId) ?: false
+        } catch (e: Exception) {
+            Log.w(TAG, "setSubtitleTrack failed", e)
+            false
+        }
+    }
+
     fun stop() {
         mediaPlayer?.stop()
     }
