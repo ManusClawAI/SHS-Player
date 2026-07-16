@@ -179,14 +179,10 @@ fun AudioSettingsDialog(
     var playbackSpeed by remember { mutableFloatStateOf(player.playbackParameters.speed) }
     val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
 
-    // Skip Silence
+    // Skip Silence — VLC doesn't support this; kept as a no-op UI toggle.
     var skipSilence by remember { mutableStateOf(false) }
     LaunchedEffect(skipSilence) {
-        runCatching {
-            if (player is androidx.media3.exoplayer.ExoPlayer) {
-                player.skipSilenceEnabled = skipSilence
-            }
-        }
+        // No-op: VLC has no skip-silence API.
     }
 
     AlertDialog(

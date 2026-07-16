@@ -1,22 +1,12 @@
 package dev.anilbeesetti.nextplayer.feature.player.extensions
 
-import androidx.media3.common.C
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.trackselection.MappingTrackSelector
+import androidx.annotation.Keep
 
 /**
- * Returns whether the specified renderer is available.
+ * Placeholder — ExoPlayer's MappingTrackSelector was removed when we migrated
+ * to VLC-only. VLC has its own track selection system (not exposed via Media3).
  *
- * @param type The type of the renderer.
- * @return Whether the specified renderer is available.
+ * This file is kept for backward-compat with any callers; it does nothing.
  */
-@UnstableApi
-fun MappingTrackSelector.MappedTrackInfo.isRendererAvailable(
-    type: @C.TrackType Int,
-): Boolean {
-    for (i in 0 until rendererCount) {
-        if (getTrackGroups(i).length == 0) continue
-        if (type == getRendererType(i)) return true
-    }
-    return false
-}
+@Keep
+object MappedTrackInfo
