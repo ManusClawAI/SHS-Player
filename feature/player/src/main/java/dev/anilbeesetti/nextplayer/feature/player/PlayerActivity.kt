@@ -138,7 +138,9 @@ class PlayerActivity : ComponentActivity() {
             vlcAdapter = VlcPlayerAdapter(applicationContext).also { adapter ->
                 adapter.setMediaItem(MediaItem.fromUri(videoUri!!))
                 adapter.prepare()
-                adapter.play()
+                // Don't call play() here — wait for surface to be attached
+                // MediaPlayerScreen's AndroidView will attach the surface,
+                // then we call play() in onStart()
             }
         }
 
@@ -576,7 +578,12 @@ class PlayerActivity : ComponentActivity() {
         vlcAdapter?.addListener(playerEventListener)
         vlcAdapter?.run {
             updateKeepScreenOnFlag()
-            if (currentMediaItem == null) startPlayback()
+            // Start playback if media is loaded but not yet playing
+            // (surface will be attached by MediaPlayerScreen's AndroidView)
+            if (!isPlaying && currentMediaItem != null) {
+                android.util.Log.i("PlayerActivity", "onStart: starting VLC playback")
+                play()
+            }
         }
     }
 
