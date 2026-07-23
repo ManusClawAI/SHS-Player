@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.net.wifi.WifiManager
+import android.util.Log
 import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -68,10 +69,48 @@ fun generateQrCodeBitmap(content: String, size: Int = 512): Bitmap? {
 }
 
 fun getWifiIpAddress(context: Context): String? {
-    val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-    val ip = wm.connectionInfo.ipAddress
-    if (ip == 0) return null
-    return String.format("%d.%d.%d.%d", ip and 0xff, ip shr 8 and 0xff, ip shr 16 and 0xff, ip shr 24 and 0xff)
+    // Try the old WifiManager API first (works on older Android)
+    try {
+        val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val ip = wm.connectionInfo.ipAddress
+        if (ip != 0) {
+            return String.format("%d.%d.%d.%d", ip and 0xff, ip shr 8 and 0xff, ip shr 16 and 0xff, ip shr 24 and 0xff)
+        }
+    } catch (e: Exception) {
+        // Fall through to NetworkInterface enumeration
+    }
+
+    // Fall back to NetworkInterface enumeration (works on Android 12+ where
+    // WifiManager.connectionInfo.ipAddress is deprecated and returns 0)
+    try {
+        val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+        for (intf in interfaces) {
+            // Skip non-wifi interfaces (look for wlan0, wlan1, or any with "wlan" in name)
+            val name = intf.name?.lowercase() ?: continue
+            if (!name.contains("wlan") && !name.contains("ap") && !name.contains("eth")) continue
+            val addrs = intf.inetAddresses
+            while (addrs.hasMoreElements()) {
+                val addr = addrs.nextElement()
+                if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                    return addr.hostAddress
+                }
+            }
+        }
+        // If no wlan interface found, try any non-loopback IPv4
+        val allInterfaces = java.net.NetworkInterface.getNetworkInterfaces()
+        for (intf in allInterfaces) {
+            val addrs = intf.inetAddresses
+            while (addrs.hasMoreElements()) {
+                val addr = addrs.nextElement()
+                if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                    return addr.hostAddress
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("FileTransfer", "getWifiIpAddress failed", e)
+    }
+    return null
 }
 
 data class SelectedMediaItem(val uri: Uri, val name: String, val size: Long, val type: String)

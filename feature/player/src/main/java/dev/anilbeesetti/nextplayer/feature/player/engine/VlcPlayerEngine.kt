@@ -42,6 +42,33 @@ class VlcPlayerEngine(private val context: Context) {
     private var equalizer: MediaPlayer.Equalizer? = null
     private var currentMedia: Media? = null
 
+    // Video size tracking — VLC fires OnNewVideoLayoutListener.onNewVideoLayout
+    // (passed to attachViews()) when the video dimensions are known.
+    @Volatile private var _videoWidth: Int = 0
+    @Volatile private var _videoHeight: Int = 0
+    val videoWidth: Int get() = _videoWidth
+    val videoHeight: Int get() = _videoHeight
+
+    private val videoLayoutListener = org.videolan.libvlc.interfaces.IVLCVout.OnNewVideoLayoutListener { vlcVout, width, height, visibleWidth, visibleHeight, sarNum, sarDen ->
+        if (width > 0 && height > 0 && (width != _videoWidth || height != _videoHeight)) {
+            _videoWidth = width
+            _videoHeight = height
+            Log.i(TAG, "onNewVideoLayout: video size = ${width}x${height}")
+            mainHandler.post {
+                eventListeners.forEach { it.onVideoSizeChanged(width, height) }
+            }
+        }
+    }
+
+    private val voutCallback = object : org.videolan.libvlc.interfaces.IVLCVout.Callback {
+        override fun onSurfacesCreated(vlcVout: org.videolan.libvlc.interfaces.IVLCVout?) {
+            Log.d(TAG, "onSurfacesCreated")
+        }
+        override fun onSurfacesDestroyed(vlcVout: org.videolan.libvlc.interfaces.IVLCVout?) {
+            Log.d(TAG, "onSurfacesDestroyed")
+        }
+    }
+
     // Listeners
     private val eventListeners = CopyOnWriteArrayList<EventListener>()
 
@@ -67,6 +94,7 @@ class VlcPlayerEngine(private val context: Context) {
         fun onTimeChanged(timeMs: Long) {}
         fun onLengthChanged(lengthMs: Long) {}
         fun onSeekableChanged(seekable: Boolean) {}
+        fun onVideoSizeChanged(width: Int, height: Int) {}
     }
 
     fun addListener(listener: EventListener) {
@@ -104,8 +132,10 @@ class VlcPlayerEngine(private val context: Context) {
             libVlc = LibVLC(context, options)
             mediaPlayer = MediaPlayer(libVlc!!).also { mp ->
                 mp.setEventListener(::onVlcEvent)
+                // Register vout callback for video size changes
+                mp.vlcVout.addCallback(voutCallback)
             }
-            Log.i(TAG, "init: LibVLC + MediaPlayer created successfully")
+            Log.i(TAG, "init: LibVLC + MediaPlayer created successfully, vout callback registered")
         } catch (e: Exception) {
             Log.e(TAG, "init: LibVLC initialization FAILED", e)
         }
@@ -154,23 +184,43 @@ class VlcPlayerEngine(private val context: Context) {
 
     /**
      * Attach a Surface for video rendering. Call this when the SurfaceView is created.
+     * VLC's IVLCVout.setVideoSurface(Surface, SurfaceHolder) requires BOTH the
+     * Surface AND the SurfaceHolder (the holder is used for surface lifecycle
+     * callbacks — passing null means VLC can't detect surface size changes).
      */
-    fun setSurface(surface: Surface?) {
-        val mp = mediaPlayer ?: return
+    fun setSurface(surface: Surface?, holder: android.view.SurfaceHolder? = null) {
+        val mp = mediaPlayer ?: run {
+            Log.w(TAG, "setSurface: mediaPlayer is null — init() not called yet")
+            return
+        }
         try {
             val vout = mp.vlcVout
             if (surface != null) {
-                vout.setVideoSurface(surface, null)
-                if (!vout.areViewsAttached()) {
-                    vout.attachViews()
+                Log.d(TAG, "setSurface: attaching surface=$surface, holder=$holder")
+                // Detach first if already attached (clean state for new surface)
+                if (vout.areViewsAttached()) {
+                    vout.detachViews()
+                }
+                vout.setVideoSurface(surface, holder)
+                // attachViews with video layout listener to get video dimensions
+                vout.attachViews(videoLayoutListener)
+                Log.d(TAG, "setSurface: views attached, areViewsAttached=${vout.areViewsAttached()}")
+                // If media is already loaded and we're playing, VLC may need a nudge
+                // to render the first frame to the new surface
+                if (mp.isPlaying) {
+                    Log.d(TAG, "setSurface: player is playing, VLC will render to new surface")
+                } else if (currentMedia != null) {
+                    Log.d(TAG, "setSurface: media loaded but not playing, calling play() to render")
+                    mp.play()
                 }
             } else {
+                Log.d(TAG, "setSurface: detaching views (surface=null)")
                 if (vout.areViewsAttached()) {
                     vout.detachViews()
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "setSurface failed", e)
+            Log.e(TAG, "setSurface failed", e)
         }
     }
 
@@ -520,6 +570,7 @@ class VlcPlayerEngine(private val context: Context) {
     fun release() {
         try {
             Log.i(TAG, "release: cleaning up VLC resources")
+            mediaPlayer?.vlcVout?.removeCallback(voutCallback)
             equalizer = null
             currentMedia?.release()
             currentMedia = null
@@ -529,6 +580,8 @@ class VlcPlayerEngine(private val context: Context) {
             libVlc = null
             try { _pendingPfd?.close() } catch (e: Exception) { Log.w(TAG, "PFD close failed", e) }
             _pendingPfd = null
+            _videoWidth = 0
+            _videoHeight = 0
             eventListeners.clear()
             Log.i(TAG, "release: done")
         } catch (e: Exception) {

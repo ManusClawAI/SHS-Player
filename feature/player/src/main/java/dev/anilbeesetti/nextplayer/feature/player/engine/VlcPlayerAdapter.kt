@@ -151,6 +151,14 @@ class VlcPlayerAdapter(
         override fun onSeekableChanged(seekable: Boolean) {
             // No direct Player event
         }
+        override fun onVideoSizeChanged(width: Int, height: Int) {
+            mainHandler.post {
+                // VideoSize(width, height, unappliedRotationDegrees, pixelWidthHeightRatio)
+                videoSize = VideoSize(width, height, 0, 1f)
+                android.util.Log.d(TAG, "onVideoSizeChanged: ${width}x${height} → VideoSize=$videoSize")
+                notifyListeners { it.onVideoSizeChanged(videoSize) }
+            }
+        }
     }
 
     init {
@@ -307,12 +315,62 @@ class VlcPlayerAdapter(
     override fun getAudioAttributes(): AudioAttributes = AudioAttributes.DEFAULT
     override fun getDeviceInfo(): DeviceInfo = DeviceInfo.UNKNOWN
 
-    // ── SurfaceView (delegate to setVideoSurface) ───────────────────────
+    // ── SurfaceView (preferred by Media3 PlayerSurface composable) ─────
+    // When Media3's PlayerSurface composable uses SURFACE_TYPE_SURFACE_VIEW,
+    // it calls setVideoSurfaceView(SurfaceView). We extract both Surface
+    // AND SurfaceHolder and pass both to VLC's IVLCVout.
+    //
+    // IMPORTANT: SurfaceView's surface is NOT ready immediately — we must
+    // register a SurfaceHolder.Callback to attach the surface when
+    // surfaceCreated() fires.
+    private var surfaceHolderCallback: android.view.SurfaceHolder.Callback? = null
+
     override fun setVideoSurfaceView(surfaceView: SurfaceView?) {
-        engine.setSurface(surfaceView?.holder?.surface)
+        // Clean up old callback if any
+        currentSurfaceView?.holder?.let { oldHolder ->
+            surfaceHolderCallback?.let { cb -> oldHolder.removeCallback(cb) }
+        }
+        surfaceHolderCallback = null
+        currentSurfaceView = surfaceView
+
+        if (surfaceView != null) {
+            val holder = surfaceView.holder
+            val cb = object : android.view.SurfaceHolder.Callback {
+                override fun surfaceCreated(h: android.view.SurfaceHolder) {
+                    android.util.Log.d(TAG, "SurfaceHolder.Callback: surfaceCreated")
+                    engine.setSurface(h.surface, h)
+                }
+                override fun surfaceChanged(h: android.view.SurfaceHolder, format: Int, w: Int, ht: Int) {
+                    android.util.Log.d(TAG, "SurfaceHolder.Callback: surfaceChanged ${w}x${ht}")
+                    // VLC handles surface size changes internally
+                }
+                override fun surfaceDestroyed(h: android.view.SurfaceHolder) {
+                    android.util.Log.d(TAG, "SurfaceHolder.Callback: surfaceDestroyed")
+                    engine.setSurface(null)
+                }
+            }
+            holder.addCallback(cb)
+            surfaceHolderCallback = cb
+
+            // Try immediate attach (surface may already be created)
+            val surface = holder.surface
+            if (surface != null) {
+                android.util.Log.d(TAG, "setVideoSurfaceView: surface already available, attaching now")
+                engine.setSurface(surface, holder)
+            } else {
+                android.util.Log.d(TAG, "setVideoSurfaceView: surface not yet ready, waiting for surfaceCreated callback")
+            }
+        } else {
+            engine.setSurface(null)
+        }
     }
     override fun clearVideoSurfaceView(surfaceView: SurfaceView?) {
-        clearVideoSurface()
+        currentSurfaceView?.holder?.let { oldHolder ->
+            surfaceHolderCallback?.let { cb -> oldHolder.removeCallback(cb) }
+        }
+        surfaceHolderCallback = null
+        currentSurfaceView = null
+        engine.setSurface(null)
     }
     override fun seekTo(positionMs: Long) {
         engine.seekTo(positionMs)
@@ -430,18 +488,25 @@ class VlcPlayerAdapter(
     fun getSkipSilenceEnabled(): Boolean = skipSilence
 
     // ── Video ───────────────────────────────────────────────────────────
+    // Track the SurfaceView so we can get both Surface AND SurfaceHolder
+    // VLC's IVLCVout.setVideoSurface(Surface, SurfaceHolder) needs BOTH.
+    @Volatile private var currentSurfaceView: SurfaceView? = null
+
     override fun getVideoSize(): VideoSize = videoSize
     override fun setVideoSurface(surface: Surface?) {
-        engine.setSurface(surface)
+        // Direct surface set — try to get holder from tracked SurfaceView
+        val holder = currentSurfaceView?.holder
+        engine.setSurface(surface, holder)
     }
     override fun setVideoSurfaceHolder(surfaceHolder: SurfaceHolder?) {
-        engine.setSurface(surfaceHolder?.surface)
+        engine.setSurface(surfaceHolder?.surface, surfaceHolder)
     }
     override fun setVideoTextureView(textureView: TextureView?) {
         Log.w(TAG, "TextureView not supported by VLC, use SurfaceView")
         // Could extract bitmap from textureView but for now no-op
     }
     override fun clearVideoSurface() {
+        currentSurfaceView = null
         engine.setSurface(null)
     }
     override fun clearVideoSurface(surface: Surface?) { clearVideoSurface() }

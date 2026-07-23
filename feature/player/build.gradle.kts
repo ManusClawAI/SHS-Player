@@ -66,18 +66,6 @@ dependencies {
     // LibVLC — used as alternative engine for problematic codecs & audio equalizer
     implementation(libs.libvlc.android)
 
-    // Phase 4 — Universal downloader (yt-dlp wrapper).
-    // The youtubedl-android library is intentionally NOT declared as a hard
-    // dependency here — its native lib (~20 MB ffmpeg) bloats the APK and the
-    // jitpack artifact requires manual setup. UniversalDownloader uses reflection
-    // to invoke YoutubeDL.getInstance().getInfo() / execute() at runtime; if the
-    // class is missing (default), it transparently falls back to direct HTTP
-    // stream download. To enable yt-dlp extraction, add this to build.gradle.kts:
-    //
-    //   implementation("com.github.yausername.youtubedl-android:library:0.16.0")
-    //   implementation("com.github.yausername.youtubedl-android:ffmpeg:0.16.0")
-    //
-    // and verify the jitpack artifact is accessible from your network.
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.guava)
